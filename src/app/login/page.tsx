@@ -62,7 +62,7 @@ function LoginForm() {
           </Link>
           <h1 className="text-2xl font-bold text-white mt-4">Welcome back</h1>
           <p className="text-white/50 mt-1 text-sm">
-            Don't have an account?{" "}
+            Don&apos;t have an account?{" "}
             <Link href="/signup" className="text-blue-400 hover:underline">
               Sign up
             </Link>
@@ -132,7 +132,7 @@ function LoginForm() {
 
             {magicMode && (
               <p className="text-white/50 text-sm">
-                We'll email you a magic link — no password needed.{" "}
+                We&apos;ll email you a magic link — no password needed.{" "}
                 <button
                   type="button"
                   onClick={() => setMagicMode(false)}

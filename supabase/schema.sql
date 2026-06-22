@@ -16,6 +16,35 @@ CREATE TABLE IF NOT EXISTS brokerages (
 );
 
 -- ============================================================
+-- COMPANY-FIRST FREE SIGNUPS
+-- ============================================================
+CREATE TABLE IF NOT EXISTS company_signups (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  product TEXT NOT NULL DEFAULT 'eyeonads',
+  company_name TEXT NOT NULL,
+  contact_name TEXT,
+  email TEXT NOT NULL,
+  role TEXT NOT NULL,
+  company_size TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'TN',
+  plan TEXT NOT NULL DEFAULT 'free',
+  source TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS onboarding_email_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID NOT NULL REFERENCES company_signups(id) ON DELETE CASCADE,
+  sequence TEXT NOT NULL,
+  email_number INTEGER NOT NULL,
+  to_email TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  fired_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  status TEXT NOT NULL,
+  delivery JSONB NOT NULL DEFAULT '{}'
+);
+
+-- ============================================================
 -- USERS (extends auth.users)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS user_profiles (

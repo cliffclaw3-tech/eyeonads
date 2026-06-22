@@ -7,9 +7,20 @@ export default function HomePage() {
       <nav className="border-b border-white/10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-2xl font-bold text-white">👁 EyeOnAds</span>
+            <span className="text-2xl" aria-hidden="true">👁</span>
+            <span className="leading-tight">
+              <span className="block text-2xl font-bold text-white">EyeOnAds</span>
+              <span className="block text-[11px] font-normal text-white/50">a Shields Enterprises solution</span>
+            </span>
           </div>
           <div className="flex items-center gap-4">
+            <a
+              href="mailto:feedback@shieldsenterprises.example?subject=EyeOnAds%20beta%20feedback"
+              title="Share feedback or suggest a feature"
+              className="rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-xs font-semibold text-white/60 hover:text-white"
+            >
+              Beta
+            </a>
             <Link
               href="/login"
               className="text-white/70 hover:text-white transition text-sm"
@@ -34,10 +45,10 @@ export default function HomePage() {
         </div>
         <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight mb-6 leading-tight">
           AI keeps an eye on{" "}
-          <span className="text-blue-400">your agents' ads.</span>
+          <span className="text-blue-400">your agents&apos; ads.</span>
           <br />
           <span className="text-white/80 text-4xl sm:text-5xl lg:text-6xl font-semibold">
-            24/7 compliance + performance — so you don't have to.
+            24/7 compliance + performance — so you don&apos;t have to.
           </span>
         </h1>
         <p className="text-xl text-white/60 max-w-2xl mx-auto mb-12">

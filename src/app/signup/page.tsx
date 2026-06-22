@@ -3,7 +3,6 @@
 import { useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 
 type Role = "agent" | "broker";
 type State = "TN" | "VA" | "NC";
@@ -15,8 +14,9 @@ function SignupForm() {
 
   const [role, setRole] = useState<Role>(initialRole);
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [companySize, setCompanySize] = useState("1-5");
   const [state, setState] = useState<State>("TN");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,23 +26,25 @@ function SignupForm() {
     setLoading(true);
     setError(null);
 
-    const supabase = createClient();
-
-    const { error: signUpError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-        data: {
-          full_name: fullName,
-          role,
-          state,
-        },
-      },
+    const response = await fetch("/api/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        company_name: companyName,
+        contact_name: fullName,
+        email,
+        role,
+        company_size: companySize,
+        state,
+        source: "eyeonads-signup-page",
+      }),
     });
 
-    if (signUpError) {
-      setError(signUpError.message);
+    if (!response.ok) {
+      const result = (await response.json().catch(() => null)) as
+        | { error?: string }
+        | null;
+      setError(result?.error ?? "Signup failed");
       setLoading(false);
       return;
     }
@@ -115,6 +117,21 @@ function SignupForm() {
             />
           </div>
 
+          {/* Company */}
+          <div>
+            <label className="block text-white/70 text-sm mb-1 font-medium">
+              Company Name
+            </label>
+            <input
+              type="text"
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              required
+              className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Smith Realty Group"
+            />
+          </div>
+
           {/* Email */}
           <div>
             <label className="block text-white/70 text-sm mb-1 font-medium">
@@ -130,20 +147,21 @@ function SignupForm() {
             />
           </div>
 
-          {/* Password */}
+          {/* Company Size */}
           <div>
             <label className="block text-white/70 text-sm mb-1 font-medium">
-              Password
+              Company Size
             </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={8}
-              className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Min. 8 characters"
-            />
+            <select
+              value={companySize}
+              onChange={(e) => setCompanySize(e.target.value)}
+              className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="1-5">1-5 agents</option>
+              <option value="6-25">6-25 agents</option>
+              <option value="26-100">26-100 agents</option>
+              <option value="100+">100+ agents</option>
+            </select>
           </div>
 
           {/* State */}

@@ -3,6 +3,72 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 export interface Database {
   public: {
     Tables: {
+      company_signups: {
+        Row: {
+          id: string
+          product: string
+          company_name: string
+          contact_name: string | null
+          email: string
+          role: string
+          company_size: string
+          state: string
+          plan: string
+          source: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          product?: string
+          company_name: string
+          contact_name?: string | null
+          email: string
+          role: string
+          company_size: string
+          state?: string
+          plan?: string
+          source?: string | null
+          created_at?: string
+        }
+        Update: {
+          company_name?: string
+          contact_name?: string | null
+          email?: string
+          role?: string
+          company_size?: string
+          state?: string
+          plan?: string
+          source?: string | null
+        }
+      }
+      onboarding_email_events: {
+        Row: {
+          id: string
+          company_id: string
+          sequence: string
+          email_number: number
+          to_email: string
+          subject: string
+          fired_at: string
+          status: string
+          delivery: Json
+        }
+        Insert: {
+          id?: string
+          company_id: string
+          sequence: string
+          email_number: number
+          to_email: string
+          subject: string
+          fired_at?: string
+          status: string
+          delivery?: Json
+        }
+        Update: {
+          status?: string
+          delivery?: Json
+        }
+      }
       brokerages: {
         Row: {
           id: string

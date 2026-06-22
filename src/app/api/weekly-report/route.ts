@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import sgMail from "@sendgrid/mail";
+import * as nodemailer from "nodemailer";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/types";
 
@@ -20,14 +20,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing user_id" }, { status: 400 });
     }
 
-    if (!process.env.SENDGRID_API_KEY) {
+    if (!process.env.ZOHO_SMTP_USER || !process.env.ZOHO_SMTP_PASSWORD) {
       return NextResponse.json(
-        { error: "SendGrid API key not configured" },
+        { error: "Zoho SMTP not configured" },
         { status: 500 }
       );
     }
-
-    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
     const supabase = await createClient();
 
@@ -176,9 +174,19 @@ export async function POST(request: NextRequest) {
 </body>
 </html>`;
 
-    await sgMail.send({
+    const transporter = nodemailer.createTransport({
+      host: process.env.ZOHO_SMTP_HOST || "smtp.zoho.com",
+      port: Number(process.env.ZOHO_SMTP_PORT) || 465,
+      secure: (Number(process.env.ZOHO_SMTP_PORT) || 465) === 465,
+      auth: {
+        user: process.env.ZOHO_SMTP_USER,
+        pass: process.env.ZOHO_SMTP_PASSWORD,
+      },
+    });
+
+    await transporter.sendMail({
       to: typedProfile.email,
-      from: "reports@eyeonads.com",
+      from: process.env.ZOHO_SMTP_USER,
       subject: `EyeOnAds Weekly Report - ${reportDate}`,
       html,
     });

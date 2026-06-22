@@ -56,7 +56,17 @@ function ConnectContent() {
             ← Dashboard
           </Link>
           <span className="text-white/20">/</span>
-          <span className="text-white text-sm font-medium">Ad Accounts</span>
+          <span className="leading-tight text-white">
+            <span className="block text-sm font-medium">EyeOnAds · Ad Accounts</span>
+            <span className="block text-[11px] font-normal text-white/50">a Shields Enterprises solution</span>
+          </span>
+          <a
+            href="mailto:feedback@shieldsenterprises.example?subject=EyeOnAds%20beta%20feedback"
+            title="Share feedback or suggest a feature"
+            className="ml-auto rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-xs font-semibold text-white/60 hover:text-white"
+          >
+            Beta
+          </a>
         </div>
       </header>
 
