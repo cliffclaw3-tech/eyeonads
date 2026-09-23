@@ -60,7 +60,7 @@ export default async function DashboardPage() {
               <span className="block text-[11px] font-normal text-white/50">a Shields Enterprises solution</span>
             </span>
           </Link>
-          <div className="flex flex-wrap items-center gap-4">
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-4">
             <a
               href="/support"
               title="Share feedback or suggest a feature"
@@ -68,7 +68,7 @@ export default async function DashboardPage() {
             >
               Beta
             </a>
-            <span className="text-white/50 text-sm">{displayName}</span>
+            <span className="min-w-0 [overflow-wrap:anywhere] text-white/50 text-sm">{displayName}</span>
             <form action="/auth/signout" method="post">
               <button className="text-white/40 hover:text-white text-sm transition">
                 Sign out
@@ -104,7 +104,7 @@ export default async function DashboardPage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
         {/* Header */}
         <div>
-          <h1 className="text-3xl font-bold text-white">
+          <h1 className="[overflow-wrap:anywhere] text-3xl font-bold text-white">
             Welcome back, {displayName.split(" ")[0]}
           </h1>
           <p className="text-white/50 mt-1 text-sm">
