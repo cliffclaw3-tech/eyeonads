@@ -18,7 +18,7 @@ export function discoveryReport(candidates:ReportCandidate[]) {
     const image=ad.image_review;
     if(image){
       lines.push(`Image review: ${image.status}. ${image.notes}`);
-      if(image.capture)lines.push(`[Image inspected](${image.capture.image_url})\nImage captured ${image.capture.retrieved_at}; SHA-256 ${image.capture.sha256}. This source URL can change; the hash identifies the bytes inspected.`);
+      if(image.capture)lines.push(`[Captured source image](${image.capture.image_url})\nImage captured ${image.capture.retrieved_at}; SHA-256 ${image.capture.sha256}. This source URL can change; the hash identifies the bytes inspected.`);
       if(image.observations){const o=image.observations;lines.push(`Image type: ${o.creative_kind.replaceAll('_',' ')}. EHO logo/words: ${o.eho.replaceAll('_',' ')}; brokerage identification: ${o.brokerage.replaceAll('_',' ')}; contact details: ${o.contact.replaceAll('_',' ')}; license: ${o.license.replaceAll('_',' ')}. ${o.notes} These visibility observations are not determinations of a violation.`);}
     }else lines.push('Image review not performed for this source.');
 

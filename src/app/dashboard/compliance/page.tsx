@@ -111,7 +111,7 @@ export default function CompliancePage() {
         .from("user_profiles")
         .select("state")
         .eq("id", user.id)
-        .single();
+        .maybeSingle();
       if (profile?.state) setState(profile.state);
 
       // Load scan history
