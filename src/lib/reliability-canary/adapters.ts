@@ -104,7 +104,9 @@ export function monthlyReportMessage(report: MonthlyReport, nextDue: string | nu
   return { subject: `EyeOnAds reliability ${report.period}: ${report.outcome.toUpperCase()}`, text: lines.join('\n\n'), html: `<h1>Monthly reliability check: ${escapeHTML(report.period)}</h1><p><strong>Outcome: ${escapeHTML(report.outcome.toUpperCase())}</strong></p><p>Completed: ${escapeHTML(report.completedAt)}</p><table><thead><tr><th>Stage</th><th>Result</th><th>Details</th></tr></thead><tbody>${stages.map(([name, s]) => `<tr><td>${escapeHTML(name)}</td><td>${escapeHTML(s.status.toUpperCase())}</td><td>${escapeHTML(s.reason)}</td></tr>`).join('')}</tbody></table><p>${escapeHTML(recall)}</p><p>Controls passed: ${report.metrics.controlsPassed}/${report.controls.length}</p><p>Next scheduled check: ${escapeHTML(nextDue || 'Not scheduled')}</p><p>This is calibration, not a compliance clearance.</p><ul>${report.limitations.map(item => `<li>${escapeHTML(item)}</li>`).join('')}</ul><p><a href="https://eyeonads.com/broker/report">View saved evidence</a></p>` };
 }
 export function mailConfigurationError(): string | null {
-  if (!process.env.SENDGRID_API_KEY) return 'Email provider is not configured.';
+  const provider = process.env.EMAIL_PROVIDER || 'sendgrid';
+  if (provider !== 'sendgrid' && provider !== 'resend') return 'Email provider is not configured correctly.';
+  if (!(provider === 'resend' ? process.env.RESEND_API_KEY : process.env.SENDGRID_API_KEY)) return 'Email provider is not configured.';
   const from = process.env.ONBOARDING_FROM_EMAIL || 'outreach@shieldsenterprises.io';
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(from) ? null : 'Email sender is not configured correctly.';
 }
@@ -114,6 +116,18 @@ export async function sendMonthlyReport(recipient: string, report: MonthlyReport
   if (configError) return { kind: 'rejected_before_acceptance', reason: configError };
   const message = monthlyReportMessage(report, nextDue);
   try {
+    if (process.env.EMAIL_PROVIDER === 'resend') {
+      // Provider selection is explicit; an uncertain send must never fall back to another provider.
+      // Resend retains keys for 24 hours. The durable monthly outbox remains the deduplication authority.
+      const response = await fetcher('https://api.resend.com/emails', { method: 'POST', signal: AbortSignal.timeout(10000), headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json', 'Idempotency-Key': `eyeonads-monthly/${report.ownerId}/${report.period}` }, body: JSON.stringify({ from: process.env.ONBOARDING_FROM_EMAIL || 'outreach@shieldsenterprises.io', to: [recipient], subject: message.subject, text: message.text, html: message.html }) });
+      if (response.status >= 400 && response.status < 500) return { kind: 'rejected_before_acceptance', reason: `Email provider rejected the request (HTTP ${response.status}).` };
+      if (response.status === 200 || response.status === 201) {
+        const result: unknown = await response.json();
+        const id = result && typeof result === 'object' && 'id' in result && typeof result.id === 'string' ? result.id.trim() : '';
+        if (id) return { kind: 'accepted', providerMessageId: id };
+      }
+      return { kind: 'unknown', reason: 'Email provider acceptance is uncertain; reconcile before sending again.' };
+    }
     const response = await fetcher('https://api.sendgrid.com/v3/mail/send', { method: 'POST', signal: AbortSignal.timeout(10000), headers: { Authorization: `Bearer ${process.env.SENDGRID_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ personalizations: [{ to: [{ email: recipient }] }], from: { email: process.env.ONBOARDING_FROM_EMAIL || 'outreach@shieldsenterprises.io' }, subject: message.subject, content: [{ type: 'text/plain', value: message.text }, { type: 'text/html', value: message.html }], custom_args: { eyeonads_period: report.period, eyeonads_owner: report.ownerId } }) });
     const id = response.headers.get('x-message-id')?.trim();
     if (response.status === 202 && id) return { kind: 'accepted', providerMessageId: id };

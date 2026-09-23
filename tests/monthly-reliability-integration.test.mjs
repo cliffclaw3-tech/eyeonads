@@ -64,6 +64,51 @@ test('ambiguous send does not become retry-safe; explicit rejection does', async
   let called = false;
   assert.equal((await adapters({ env: { SENDGRID_API_KEY: '' } }).sendMonthlyReport('a@example.org', report, null, async () => { called = true; })).kind, 'rejected_before_acceptance'); assert.equal(called, false);
 });
+test('Resend requires explicit selection and the selected provider credential', async () => {
+  for (const env of [{ EMAIL_PROVIDER: 'resend' }, { EMAIL_PROVIDER: 'unsupported', RESEND_API_KEY: 'stub' }, { EMAIL_PROVIDER: 'sendgrid', SENDGRID_API_KEY: '', RESEND_API_KEY: 'stub' }, { EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 'stub', ONBOARDING_FROM_EMAIL: 'invalid' }]) {
+    let calls = 0;
+    const m = adapters({ env });
+    assert(m.mailConfigurationError());
+    assert.equal((await m.sendMonthlyReport('broker@example.org', report, null, async () => { calls++; })).kind, 'rejected_before_acceptance');
+    assert.equal(calls, 0);
+  }
+  let url;
+  await adapters({ env: { RESEND_API_KEY: 'stub' } }).sendMonthlyReport('broker@example.org', report, null, async u => { url = u; return new Response(null, { status: 202, headers: { 'x-message-id': 'sg' } }); });
+  assert.equal(url, 'https://api.sendgrid.com/v3/mail/send');
+});
+test('Resend accepts only 200 or 201 with an ID and stable owner/month idempotency', async () => {
+  const requests = [];
+  const m = adapters({ env: { EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 'resend-stub', SENDGRID_API_KEY: '' } });
+  for (const status of [200, 201]) {
+    const receipt = await m.sendMonthlyReport('broker@example.org', report, null, async (url, options) => { requests.push({ url, options }); return new Response(JSON.stringify({ id: 'resend-message' }), { status }); });
+    assert.equal(receipt.kind, 'accepted'); assert.equal(receipt.providerMessageId, 'resend-message');
+  }
+  assert.equal(requests[0].url, 'https://api.resend.com/emails');
+  assert.equal(requests[0].options.headers.Authorization, 'Bearer resend-stub');
+  assert.equal(requests[0].options.headers['Idempotency-Key'], 'eyeonads-monthly/owner/2026-09');
+  assert.equal(requests[1].options.headers['Idempotency-Key'], requests[0].options.headers['Idempotency-Key']);
+  const body = JSON.parse(requests[0].options.body);
+  assert.equal(body.from, 'outreach@shieldsenterprises.io'); assert.deepEqual(body.to, ['broker@example.org']);
+  assert(body.html.includes('&lt;not published&gt;')); assert(body.text.includes('Not measurable'));
+  await adapters({ env: { EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 'stub', ONBOARDING_FROM_EMAIL: 'sender@example.org' } }).sendMonthlyReport('broker@example.org', { ...report, ownerId: 'other', period: '2026-10' }, null, async (_url, options) => {
+    assert.equal(JSON.parse(options.body).from, 'sender@example.org');
+    assert.equal(options.headers['Idempotency-Key'], 'eyeonads-monthly/other/2026-10');
+    return new Response(JSON.stringify({ id: 'other-message' }), { status: 200 });
+  });
+});
+test('Resend uncertainty never falls back; confirmed 4xx rejection remains retry-safe', async () => {
+  const m = adapters({ env: { EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 'stub' } });
+  for (const outcome of [() => { throw Error('Timeout'); }, () => new Response('{}', { status: 200 }), () => new Response('{bad-json', { status: 201 }), () => new Response('{"id":"  "}', { status: 200 }), () => new Response('{"id":123}', { status: 201 }), () => new Response('{"id":"unexpected"}', { status: 202 }), () => new Response(null, { status: 500 }), () => new Response(null, { status: 503 })]) {
+    let calls = 0;
+    const receipt = await m.sendMonthlyReport('broker@example.org', report, null, async url => { calls++; assert.equal(url, 'https://api.resend.com/emails'); return outcome(); });
+    assert.equal(receipt.kind, 'unknown'); assert.equal(calls, 1);
+  }
+  for (const status of [400, 401, 403, 409, 422, 429]) {
+    let calls = 0;
+    const receipt = await m.sendMonthlyReport('broker@example.org', report, null, async url => { calls++; assert.equal(url, 'https://api.resend.com/emails'); return new Response(null, { status }); });
+    assert.equal(receipt.kind, 'rejected_before_acceptance'); assert.equal(calls, 1);
+  }
+});
 const jsonResponse = { json: (body, options = {}) => ({ body, status: options.status || 200 }) };
 function api(user, rpcData = [{ id: 'current-run' }]) {
   let queries = [], calls = [];
