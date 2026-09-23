@@ -26,6 +26,7 @@ body {
 }
 
 @media print {
+  .broker-report { padding-bottom: 0; }
   .broker-report h2,
   .broker-report h3,
   .broker-report h4 {
