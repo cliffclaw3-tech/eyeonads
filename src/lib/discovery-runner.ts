@@ -34,7 +34,8 @@ export async function runDiscovery(db: SupabaseClient, ownerId: string, setup: S
   async function assess(foundAds:DiscoveredAd[],opened:Set<string>):Promise<Candidate[]> {return Promise.all(foundAds.filter((ad:DiscoveredAd)=>validSourceURL(ad.url)).map((ad:DiscoveredAd)=>groundCandidate(ad,opened)).map(async(candidate:DiscoveredAd)=>{
     const ad=await retrieveAd(candidate,agent.name,setup.name);
     if(!reviewableAd(ad))return {...ad,review:null,review_status:'not_reviewed' as const};
-    try{return {...ad,review:await reviewAdText(ad.ad_text,ad.state,`Public-web extraction, not a verified full-page capture. Agent: ${agent.name}; brokerage: ${setup.name}; source: ${ad.url}; ${ad.context}. Images, page layout and one-click social disclosures may not have been reviewed.`),review_status:'reviewed' as const};}
+    const identityExcerpts=ad.identity_evidence?[...new Set(Object.values(ad.identity_evidence))].join('\n'):'';
+    try{return {...ad,review:await reviewAdText(ad.ad_text,ad.state,`Public-web extraction, not a verified full-page capture. Agent: ${agent.name}; brokerage: ${setup.name}; source: ${ad.url}; ${ad.context}. Exact identity/contact excerpts from the same source: ${identityExcerpts}. Images, page layout and one-click social disclosures may not have been reviewed.`),review_status:'reviewed' as const};}
     catch{return {...ad,review:null,review_status:'failed' as const};}
   }));}
   let candidates=await assess(found.candidates,openedURLs);
