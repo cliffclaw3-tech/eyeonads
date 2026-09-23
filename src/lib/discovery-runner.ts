@@ -14,6 +14,10 @@ export async function runDiscovery(db: SupabaseClient, ownerId: string, setup: S
  if(claim.error)throw new Error('Search could not start. Please retry.');
  if(!claim.data)throw new Error('This agent is already being searched. Retry after three minutes.');
  try {
+  const previous=await db.from('eyeonads_discovery_reviews').select('evidence').eq('owner_id',ownerId).eq('agent_id',agent.id).maybeSingle();
+  if(previous.error)throw Error('Previous source evidence could not be loaded');
+  const previousEvidence=previous.data?.evidence;
+  const watched:DiscoveredAd[]=(Array.isArray(previousEvidence?.watch_sources)?previousEvidence.watch_sources:(previousEvidence?.candidates||[]).filter((ad:Candidate)=>ad.review_status==='reviewed')).filter((ad:DiscoveredAd)=>validSourceURL(ad.url)).slice(0,3).map((ad:DiscoveredAd)=>({url:ad.url,title:ad.title,kind:ad.kind,state:'unknown',identity:'uncertain',ad_text:'',page_access:'snippet_only',context:'Previously assessed source URL; current text and identity must be retrieved and verified again.'}));
   const client=new OpenAI({apiKey:process.env.OPENAI_API_KEY,maxRetries:0,timeout:40000,defaultHeaders:{'Accept-Encoding':'identity'}});
   async function discover(alternatives?: {excluded_hosts:string[];excluded_urls:string[]}) {
   const readableDomains=['compass.com','coldwellbanker.com','trulia.com','facebook.com','instagram.com'];
@@ -41,7 +45,8 @@ export async function runDiscovery(db: SupabaseClient, ownerId: string, setup: S
     try{return {...ad,review:await reviewAdText(ad.ad_text,ad.state,`Public-web extraction, not a verified full-page capture. Agent: ${agent.name}; brokerage: ${setup.name}; source: ${ad.url}; ${ad.context}. Exact identity/contact excerpts from the same source: ${identityExcerpts}. Images, page layout and one-click social disclosures may not have been reviewed.`),review_status:'reviewed' as const};}
     catch{return {...ad,review:null,review_status:'failed' as const};}
   }));}
-  let candidates=await assess(found.candidates,openedURLs);
+  const selected=[...watched.slice(0,2),...found.candidates].filter((ad:DiscoveredAd,index:number,list:DiscoveredAd[])=>list.findIndex(other=>other.url===ad.url)===index).slice(0,3);
+  let candidates=await assess(selected,openedURLs);
   let attemptedSources=candidates.length;
   // A short second search can escape a group of inaccessible portals without exceeding the worker deadline.
   if(!candidates.some(ad=>ad.review_status==='reviewed')&&Date.now()-startedAt<40000){
@@ -57,7 +62,8 @@ export async function runDiscovery(db: SupabaseClient, ownerId: string, setup: S
     }catch{ /* Preserve the first search's truthful coverage gaps if the alternative search cannot finish. */ }
   }
   const presentation=discoveryReport(candidates);
-  const evidence={version:2,attempted_sources:attemptedSources,opened_urls:[...openedURLs],search_queries:searchQueries,identity_note:presentation.identity_note,coverage_gaps:presentation.coverage_gaps,candidates};
+  const watchSources=[...candidates.filter(ad=>ad.review_status==='reviewed'),...watched].filter((ad,index,list)=>list.findIndex(other=>other.url===ad.url)===index).slice(0,3).map(ad=>({url:ad.url,title:ad.title,kind:ad.kind}));
+  const evidence={version:3,attempted_sources:attemptedSources,opened_urls:[...openedURLs],search_queries:searchQueries,watch_sources:watchSources,identity_note:presentation.identity_note,coverage_gaps:presentation.coverage_gaps,candidates};
   const saved=await db.from('eyeonads_discovery_reviews').update({status:'complete',report:presentation.report,sources:presentation.sources,evidence,searched_at:new Date().toISOString(),error:null}).eq('owner_id',ownerId).eq('agent_id',agent.id).eq('run_id',runId).select('agent_id,agent_name,status,report,sources,searched_at,error,evidence').single();
   if(saved.error||!saved.data)throw Error('Save failed');
   return saved.data;
