@@ -8,6 +8,7 @@ export type OfficeSocialAd = MetaAdCard & {
   matched_agent_ids:string[];
   ad_text:string;
   text_review:AdReview|null;
+  reassessed_at?:string;
   text_review_status:'reviewed'|'not_reviewed'|'unavailable';
   image_review:SourceImageReview;
   image_data_url?:string;

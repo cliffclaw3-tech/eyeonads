@@ -1,0 +1,56 @@
+[
+  {
+    "record": "agents[2].candidates[2]",
+    "agent": "Mallary Kelley",
+    "url": "https://www.coldwellbanker.com/tn/elizabethton/109-mayfield-dr-apt-1/lid-P00800000HFZqO1bCm1d7RQeFX6CwGgEf7vdlQFZ",
+    "identity": {
+      "agent": "See 31 photos 109 Mayfield Drive #1, Elizabethton, TN 37643 $255,000 3 Beds 1 Bath 925 Sq Ft Single Family Active Listed by Mallary Kelley Greater Impact Realty Jonesborough 423-973-8634 Last updated: September 22, 2026,",
+      "brokerage": "See 31 photos 109 Mayfield Drive #1, Elizabethton, TN 37643 $255,000 3 Beds 1 Bath 925 Sq Ft Single Family Active Listed by Mallary Kelley Greater Impact Realty Jonesborough 423-973-8634 Last updated: September 22, 2026,"
+    },
+    "result": {
+      "flags": [
+        {
+          "rule": "Tennessee Rule 1260-02-.12 \u2014 brokerage identification",
+          "severity": "yellow",
+          "explanation": "The supplied context identifies Greater Impact Realty, but the partial extraction does not show the firm's telephone number. Because this is an incomplete capture of a third-party syndicated page and linked disclosures were not reviewed, the omission cannot be established.",
+          "recommendation": "Human-review the full page and any one-click profile or disclosure to verify that the firm name and firm telephone number are displayed as required. Determine separately whether this syndicated page is controlled by the listing agent or brokerage."
+        },
+        {
+          "rule": "Unsupported income or performance claims",
+          "severity": "yellow",
+          "explanation": "Claims that the property is a \"successful Airbnb\" and is \"ready to continue generating income\" imply past performance and future income potential without supporting occupancy, revenue, expense, permit, or operating-history information in the excerpt.",
+          "recommendation": "Verify the operating and financial records supporting these statements. Qualify future-income language and advise prospective buyers to independently evaluate revenue, expenses, licensing, taxes, and rental eligibility."
+        },
+        {
+          "rule": "Unsupported rental-restriction claim",
+          "severity": "yellow",
+          "explanation": "The categorical statement that there are \"no restrictions on short-term or long-term rentals\" is not substantiated by the excerpt and may depend on deeds, condominium documents, zoning, permits, and local regulations.",
+          "recommendation": "Confirm the claim using current governing documents and applicable local requirements. Use qualified wording and direct buyers to perform independent due diligence before relying on rental availability."
+        }
+      ],
+      "result": "yellow",
+      "summary": "Review needed, not legal approval. The partial third-party extraction contains potentially unsupported rental-income and unrestricted-rental claims. Brokerage and telephone disclosures require human verification from the complete page or linked profile; their absence from this excerpt does not establish a violation. No discriminatory language was detected in the supplied text."
+    }
+  },
+  {
+    "record": "agents[48].candidates[1]",
+    "agent": "Andrew Marshall",
+    "url": "https://www.trulia.com/home/350-ebenezer-loop-chuckey-tn-37641-55761221",
+    "identity": {
+      "agent": "tax records and must be verified before assuming accuracy. Buyer(s) must verify all information. Last check for updates: about 2 hours ago Listing courtesy of Andrew Marshall, (443) 643-5804 Greater Impact Realty Jonesborough, (423) 973-8634",
+      "brokerage": "tax records and must be verified before assuming accuracy. Buyer(s) must verify all information. Last check for updates: about 2 hours ago Listing courtesy of Andrew Marshall, (443) 643-5804 Greater Impact Realty Jonesborough, (423) 973-8634"
+    },
+    "result": {
+      "flags": [
+        {
+          "rule": "Incomplete context and third-party syndicated listing",
+          "severity": "yellow",
+          "explanation": "The Trulia extraction is a partial text sample from a third-party IDX page, not a verified full-page capture or the agent's current first-generation advertisement. The excerpt identifies Greater Impact Realty and provides a firm telephone number, so no brokerage-identification issue is apparent in the supplied text. However, the complete page, linked profile, layout, and source listing were not reviewed.",
+          "recommendation": "Human-review the complete Trulia page and the current broker/agent-controlled source advertisement separately. Confirm that the firm name and firm telephone number are displayed as required by Tennessee Rule 1260-02-.12. Do not attribute syndication or formatting issues to the agent without confirming control."
+        }
+      ],
+      "result": "yellow",
+      "summary": "Review needed because the evidence is an incomplete extraction from a third-party syndicated listing. The supplied text includes the brokerage name and firm telephone number, contains verification disclaimers, and shows no apparent discriminatory language or clearly unsupported claim. This is not legal approval."
+    }
+  }
+]

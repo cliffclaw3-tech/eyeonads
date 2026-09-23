@@ -45,7 +45,7 @@ export async function runDiscovery(db: SupabaseClient, ownerId: string, setup: S
     const identityExcerpts=ad.identity_evidence?[...new Set(Object.values(ad.identity_evidence))].join('\n'):'';
     // Image and text work share the remaining worker budget; image failure never invents a disclosure finding.
     const [text,image_review]=await Promise.all([
-      reviewAdText(ad.ad_text,ad.state,`Public-web extraction, not a verified full-page capture. Agent: ${agent.name}; brokerage: ${setup.name}; source: ${ad.url}; ${ad.context}. Exact identity/contact excerpts from the same source: ${identityExcerpts}. Image observations are reported separately; page layout and one-click social disclosures have not been reviewed.`).then(review=>({review,review_status:'reviewed' as const})).catch(()=>({review:null,review_status:'failed' as const})),
+      reviewAdText(ad.ad_text,ad.state,`Public-web extraction, not a verified full-page capture. Agent: ${agent.name}; brokerage: ${setup.name}; source: ${ad.url}; ${ad.context}. Exact identity/contact excerpts from the same source: ${identityExcerpts}. Image observations are reported separately; page layout and one-click social disclosures have not been reviewed.`,{firmName:setup.name,identityExcerpts:ad.identity_evidence?Object.values(ad.identity_evidence):[],partialSource:true}).then(review=>({review,review_status:'reviewed' as const})).catch(()=>({review:null,review_status:'failed' as const})),
       reviewSourceImage(ad.image_candidates?.[0],startedAt+110000),
     ]);
     return {...ad,...text,image_review};

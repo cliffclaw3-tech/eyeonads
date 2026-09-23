@@ -24,13 +24,16 @@ export function socialAdText(card:MetaAdCard){
   const body=card.visible_text.split(/\nSponsored\n/)[1]||'';
   return body.split(/\n(?:Learn more|Send message|Contact us|Sign up|Shop now|Thinking About A Move\?)\n?/i)[0].trim().split(/\s+/).slice(0,150).join(' ');
 }
+export function socialReviewContext(card:MetaAdCard,relevanceNote:string){
+  return `Visible text sampled from a public Meta Ad Library card. Publisher: ${card.advertiser?.name||'unverified'}. Captured at: ${card.captured_at}. Ad activity at capture: ${card.active}. Ad started running: ${card.started_running||'not shown'}. These are ad-library dates and activity, not proof of property availability, price accuracy or complete campaign history. ${card.attribution_note} ${relevanceNote} Image observations are separate; do not assert that missing text is missing from the full creative, video, or linked disclosures.`;
+}
 async function assessCard(card:MetaAdCard,setup:Setup):Promise<OfficeSocialAd>{
   const relevance=socialRelevance(card,setup)!;
   const ad_text=socialAdText(card);
   // State comes from explicit source wording or the source's Jonesborough reference.
   const state=/\b(TN|Tennessee|Jonesborough)\b/i.test(card.visible_text)?'TN':/\b(VA|Virginia)\b/i.test(card.visible_text)?'VA':/\b(NC|North Carolina)\b/i.test(card.visible_text)?'NC':null;
   const [text,image]=await Promise.all([
-    state&&ad_text?reviewAdText(ad_text,state,`Visible text sampled from a public Meta Ad Library card. Publisher: ${card.advertiser?.name||'unverified'}. ${card.attribution_note} ${relevance.relevance_note} Image observations are separate; do not assert that missing text is missing from the full creative, video, or linked disclosures.`).then(text_review=>({text_review,text_review_status:'reviewed' as const})).catch(()=>({text_review:null,text_review_status:'unavailable' as const})) : Promise.resolve({text_review:null,text_review_status:'not_reviewed' as const}),
+    state&&ad_text?reviewAdText(ad_text,state,socialReviewContext(card,relevance.relevance_note),{firmName:setup.name,identityExcerpts:[card.visible_text],partialSource:true}).then(text_review=>({text_review,text_review_status:'reviewed' as const})).catch(()=>({text_review:null,text_review_status:'unavailable' as const})) : Promise.resolve({text_review:null,text_review_status:'not_reviewed' as const}),
     (async()=>{
       const media=card.media[0];
       if(!media)return {image_review:{status:'unavailable' as const,observations:null,notes:'No ad creative or video poster was captured. No missing disclosure was established.'}};

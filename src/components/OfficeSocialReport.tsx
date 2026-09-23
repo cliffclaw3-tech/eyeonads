@@ -34,7 +34,7 @@ function SocialAd({ ad }: { ad: OfficeSocialAd }) {
     <div><h4 className="font-semibold">Ad copy captured</h4><p className="mt-2 whitespace-pre-wrap break-words">{ad.ad_text || 'No readable ad copy captured. Text remains unchecked.'}</p>{ad.truncated && <p className="text-sm">Only part of the visible text was saved. Open the original ad for the remaining context.</p>}</div>
     <div><h4 className="font-semibold">Automated text assessment</h4>{assessment ? <>
       <p className="mt-2 font-semibold">{assessment.result === 'green' ? 'No text issues detected — not approval' : assessment.result === 'red' ? 'Potential serious issue — human review needed' : 'Review needed'}</p>
-      <p>{assessment.summary}</p>
+      <p>{assessment.summary}</p>{ad.reassessed_at && <p className="text-sm">Saved text reassessed {date(ad.reassessed_at)}. The source capture date above is unchanged.</p>}{assessment.coverage_notes?.length ? <p className="text-sm">Assessment coverage: {assessment.coverage_notes.join(' ')}</p> : null}
       {assessment.flags.map((flag, index) => <div className="mt-3 border-l-2 border-amber-300 pl-3" key={index}><p className="font-semibold">{flag.rule}</p><p>{flag.explanation}</p><p>Next action: {flag.recommendation}</p></div>)}
     </> : <p>Text assessment unavailable. The captured copy has not received a completed automated review.</p>}</div>
     <div className="space-y-3"><h4 className="font-semibold">Saved image evidence</h4>
