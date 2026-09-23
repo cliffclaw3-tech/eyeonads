@@ -14,7 +14,7 @@ export function publicURL(value: string): URL {
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || (url.port && !['80','443'].includes(url.port)) || !host.includes('.') && !host.includes(':') || host.toLowerCase().endsWith('.localhost') || host.toLowerCase().endsWith('.local') || (ipaddr.isValid(host) && !publicAddress(host))) throw Error('Not a public page');
   return url;
 }
-const publicLookup: LookupFunction = (host, options, callback) => {
+export const publicLookup: LookupFunction = (host, options, callback) => {
   void lookup(host, { all: true, verbatim: true }).then(addresses => {
     if (!addresses.length || addresses.some(address => !publicAddress(address.address))) throw Error('Non-public address');
     // Validation happens inside the actual connection lookup, preventing DNS
@@ -30,6 +30,31 @@ export function extractPageText(html:string):string {
   $('br').replaceWith(' ');
   $('p,div,section,article,li,h1,h2,h3,header,footer').append(' ');
   return $('body').text().replace(/\s+/g,' ').trim();
+}
+export type PublicImageCandidate = { url:string; source_url:string; alt:string; role:'social_preview'|'page_image' };
+// Candidates are references in the retrieved HTML, not verified complete ads.
+export function extractImageCandidates(html:string, sourceURL:string):PublicImageCandidate[] {
+  const source=publicURL(sourceURL).href;
+  const $=load(html);
+  const candidates:PublicImageCandidate[]=[];
+  function add(raw:string|undefined,alt:string,role:PublicImageCandidate['role']) {
+    if(!raw||candidates.length>=4)return;
+    try {
+      const url=publicURL(new URL(raw,source).href).href;
+      if(candidates.some(item=>item.url===url))return;
+      candidates.push({url,source_url:source,alt:alt.slice(0,300),role});
+    }catch{ /* Unsupported and private references are never fetched. */ }
+  }
+  $('meta[property="og:image"],meta[name="twitter:image"]').each((_,node)=>add($(node).attr('content'),'', 'social_preview'));
+  $('script,style,noscript,template,[hidden],[aria-hidden="true"]').remove();
+  $('main img,article img,body img').each((_,node)=>{
+    const element=$(node),alt=element.attr('alt')||'';
+    if(/logo|icon|avatar|headshot|profile|tracking|pixel/i.test(alt+' '+(element.attr('class')||'')))return;
+    const width=Number(element.attr('width')),height=Number(element.attr('height'));
+    if((width>0&&width<200)||(height>0&&height<120))return;
+    add(element.attr('src'),alt,'page_image');
+  });
+  return candidates;
 }
 export async function readPublicPage(value:string) {
   let url=publicURL(value);
@@ -51,7 +76,7 @@ export async function readPublicPage(value:string) {
       const html=Buffer.concat(chunks).toString('utf8');
       const text=extractPageText(html);
       if(text.length<150||/^(just a moment|access denied|verify you are human)/i.test(text))throw Error('Page content unavailable');
-      return {url:url.href,text:text.slice(0,45000),truncated:text.length>45000,sha256:createHash('sha256').update(html).digest('hex'),retrieved_at:new Date().toISOString()};
+      return {image_candidates:extractImageCandidates(html,url.href),url:url.href,text:text.slice(0,45000),truncated:text.length>45000,sha256:createHash('sha256').update(html).digest('hex'),retrieved_at:new Date().toISOString()};
     }
     throw Error('Page unavailable');
   } finally { await dispatcher.destroy(); }

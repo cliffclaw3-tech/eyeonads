@@ -19,3 +19,7 @@ test('assessed advertisements expose exact sampled text and provisional findings
  assert.match(result.report,/not compliance clearance/);
  assert.equal(result.sources.length,2);
 });
+test('image report differentiates partial observation, inaccessible image and legacy unchecked sources',()=>{
+ const result=discoveryReport([{...blocked,image_review:{status:'partial',notes:'Only a property photo.',observations:{creative_kind:'property_photo',eho:'not_visible',brokerage:'not_visible',contact:'not_visible',license:'uncertain',notes:'No full ad captured.'},capture:{image_url:'https://example.com/photo.jpg',retrieved_at:'2026-09-23',sha256:'abc'}}},blocked]);
+ assert.match(result.report,/Image type: property photo/);assert.match(result.report,/not determinations of a violation/);assert.match(result.report,/Image inspected/);assert.match(result.report,/Image review not performed/);
+});

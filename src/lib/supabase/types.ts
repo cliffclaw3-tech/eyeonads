@@ -1,4 +1,7 @@
+import type { ImageObservations } from '../image-review';
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
+
+export type ScanImageAttachment = { filename: string; data_url: string; sha256: string; captured_at: string; review_status: 'reviewed' | 'partial' | 'unavailable' | 'not_requested'; observations: ImageObservations | null };
 
 export interface Database {
   public: {
@@ -210,6 +213,7 @@ export interface Database {
           state: string
           result: 'green' | 'yellow' | 'red'
           flags: ComplianceFlag[]
+          image_attachment?: ScanImageAttachment | null
           analysis_source?: string | null
           ai_explanation: string | null
           scanned_at: string
@@ -222,6 +226,7 @@ export interface Database {
           state: string
           result: 'green' | 'yellow' | 'red'
           flags: ComplianceFlag[]
+          image_attachment?: ScanImageAttachment | null
           analysis_source?: string | null
           ai_explanation?: string | null
           scanned_at?: string
@@ -229,6 +234,7 @@ export interface Database {
         Update: {
           result?: 'green' | 'yellow' | 'red'
           flags?: ComplianceFlag[]
+          image_attachment?: ScanImageAttachment | null
           analysis_source?: string | null
           ai_explanation?: string | null
         }

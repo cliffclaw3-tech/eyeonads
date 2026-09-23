@@ -4,9 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { VoiceInput } from "@/components/VoiceInput";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import type { Database, ComplianceFlag } from "@/lib/supabase/types";
+import type { Database, ComplianceFlag, ScanImageAttachment } from "@/lib/supabase/types";
 
-type ComplianceScan = Database["public"]["Tables"]["compliance_scans"]["Row"];
+type ComplianceScan = Database["public"]["Tables"]["compliance_scans"]["Row"] & {image_filename?: string | null};
 
 type ScanResult = {
   result: "green" | "yellow" | "red";
@@ -15,6 +15,8 @@ type ScanResult = {
   persisted?: boolean;
   scan_id?: string;
   analysis_source?: string;
+  image_attachment?: ScanImageAttachment | null;
+  image_analysis_status?: string;
 };
 
 function ComplianceBadge({ result }: { result: "green" | "yellow" | "red" }) {
@@ -84,7 +86,7 @@ export default function CompliancePage() {
   const [historyLoading, setHistoryLoading] = useState(true);
 
   // Image upload state
-  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imageFilename, setImageFilename] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -115,7 +117,7 @@ export default function CompliancePage() {
       // Load scan history
       const { data: scans, error: historyError } = await supabase
         .from("compliance_scans")
-        .select("*")
+        .select("id,user_id,ad_copy,state,result,flags,ai_explanation,analysis_source,scanned_at,image_filename:image_attachment->>filename")
         .eq("user_id", user.id)
         .order("scanned_at", { ascending: false })
         .limit(10);
@@ -136,7 +138,7 @@ export default function CompliancePage() {
   }
 
   function handleImageFile(file: File) {
-    if (scanning || fixing) return;
+    if (scanning || fixing || imageLoading) return;
     if (!["image/jpeg", "image/png"].includes(file.type)) {
       setError("Choose a JPG or PNG image.");
       return;
@@ -155,7 +157,7 @@ export default function CompliancePage() {
       if (readVersion !== imageReadVersion.current) return;
       const result = e.target?.result as string;
       setImageLoading(false);
-      setImageFile(file);
+      setImageFilename(file.name.replace(/[\x00-\x1f\x7f/\\]/g, "_").slice(0, 200) || "Uploaded ad image");
       setImagePreview(result);
       setImageBase64(result);
     };
@@ -189,24 +191,43 @@ export default function CompliancePage() {
   }
 
   function clearImage() {
-    if (scanning || fixing) return;
+    if (scanning || fixing || imageLoading) return;
     invalidateResult();
     imageReadVersion.current += 1;
     setImageLoading(false);
-    setImageFile(null);
+    setImageFilename(null);
     setImagePreview(null);
     setImageBase64(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  function openSavedScan(scan: ComplianceScan) {
-    if (scanning || fixing) return;
+  async function openSavedScan(scan: ComplianceScan) {
+    if (scanning || fixing || imageLoading) return;
     clearImage();
-    setAdCopy(scan.ad_copy); setState(scan.state);
-    setScannedInput({adCopy: scan.ad_copy, state: scan.state});
-    setScanResult({result: scan.result, flags: scan.flags, summary: scan.ai_explanation ?? "Saved review", persisted: true, scan_id: scan.id, analysis_source: scan.analysis_source ?? "unknown"});
-    setFixedCopy(null); setError(null);
-    window.setTimeout(() => document.getElementById("scan-result")?.scrollIntoView({behavior: "smooth", block: "start"}), 0);
+    const version = inputVersion.current;
+    setImageLoading(true);
+    setError(null);
+    try {
+      const supabase = createClient();
+      const {data, error: detailError} = await supabase.from("compliance_scans").select("image_attachment").eq("id", scan.id).eq("user_id", scan.user_id).single();
+      if (version !== inputVersion.current) return;
+      if (detailError || !data) throw new Error("This saved result could not be loaded. Please retry View result.");
+      const attachment = data.image_attachment;
+      if (attachment) {
+        setImagePreview(attachment.data_url);
+        setImageBase64(attachment.data_url);
+        setImageFilename(attachment.filename);
+      }
+      setAdCopy(scan.ad_copy); setState(scan.state);
+      setScannedInput({adCopy: scan.ad_copy, state: scan.state});
+      setScanResult({result: scan.result, flags: scan.flags, summary: scan.ai_explanation ?? "Saved review", persisted: true, scan_id: scan.id, analysis_source: scan.analysis_source ?? "unknown", image_attachment: attachment, image_analysis_status: attachment?.review_status});
+      setFixedCopy(null);
+      window.setTimeout(() => document.getElementById("scan-result")?.scrollIntoView({behavior: "smooth", block: "start"}), 0);
+    } catch (err) {
+      if (version === inputVersion.current) setError(err instanceof Error ? err.message : "Saved result unavailable.");
+    } finally {
+      if (version === inputVersion.current) setImageLoading(false);
+    }
   }
 
   const handleScan = async () => {
@@ -232,7 +253,7 @@ export default function CompliancePage() {
           ad_copy: submitted.adCopy,
           state: submitted.state,
           user_id: user?.id ?? "",
-          ...(imageBase64 ? { image_base64: imageBase64 } : {}),
+          ...(imageBase64 ? { image_base64: imageBase64, image_filename: imageFilename || "Uploaded ad image" } : {}),
         }),
       });
 
@@ -253,7 +274,7 @@ export default function CompliancePage() {
       if (user) {
         const { data: scans, error: historyError } = await supabase
           .from("compliance_scans")
-          .select("*")
+          .select("id,user_id,ad_copy,state,result,flags,ai_explanation,analysis_source,scanned_at,image_filename:image_attachment->>filename")
           .eq("user_id", user.id)
           .order("scanned_at", { ascending: false })
           .limit(10);
@@ -360,7 +381,7 @@ export default function CompliancePage() {
             </label>
             <select
               id="scan-state"
-              disabled={scanning || fixing}
+              disabled={scanning || fixing || imageLoading}
               value={state}
               onChange={(e) => { invalidateResult(); setState(e.target.value); }}
               className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -382,16 +403,16 @@ export default function CompliancePage() {
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 role="button"
-                tabIndex={scanning || fixing ? -1 : 0}
+                tabIndex={scanning || fixing || imageLoading ? -1 : 0}
                 aria-label="Upload ad image"
-                aria-disabled={scanning || fixing}
+                aria-disabled={scanning || fixing || imageLoading}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    if (!scanning && !fixing) fileInputRef.current?.click();
+                    if (!scanning && !fixing && !imageLoading) fileInputRef.current?.click();
                   }
                 }}
-                onClick={() => { if (!scanning && !fixing) fileInputRef.current?.click(); }}
+                onClick={() => { if (!scanning && !fixing && !imageLoading) fileInputRef.current?.click(); }}
                 className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
                   isDragging
                     ? "border-blue-400 bg-blue-500/10"
@@ -406,7 +427,7 @@ export default function CompliancePage() {
                 <input
                   ref={fileInputRef}
                   id="ad-image"
-                  disabled={scanning || fixing}
+                  disabled={scanning || fixing || imageLoading}
                   type="file"
                   accept="image/jpeg,image/png,image/jpg"
                   onClick={(event) => event.stopPropagation()}
@@ -424,11 +445,11 @@ export default function CompliancePage() {
                 />
                 <div className="absolute top-2 right-2 flex items-center gap-2">
                   <span className="bg-black/60 text-white/70 text-xs px-2 py-1 rounded-full">
-                    {imageFile?.name ?? "image"}
+                    {imageFilename ?? "image"}
                   </span>
                   <button
                     onClick={clearImage}
-                    disabled={scanning || fixing}
+                    disabled={scanning || fixing || imageLoading}
                     className="bg-red-900/80 hover:bg-red-700 text-white text-xs px-2 py-1 rounded-full transition"
                   >
                     ✕ Remove
@@ -443,15 +464,18 @@ export default function CompliancePage() {
             )}
           </div>
 
+          {imagePreview && <p id="image-copy-instruction" className="text-blue-200 text-sm">Image attached. Ad copy is also required: paste or dictate the text that accompanies this image below, including any contact and disclosure text. Then choose Scan Now.</p>}
           {imageLoading && <p role="status" className="text-white/70 text-sm">Loading image…</p>}
           <div>
             <label htmlFor="ad-copy" className="block text-white/70 text-sm font-medium mb-2">
-              Ad Copy
+              Ad Copy (Required)
             </label>
-            <VoiceInput disabled={scanning || fixing} label="Dictate your ad" onTranscript={(text) => { invalidateResult(); setAdCopy((current) => [current.trimEnd(), text].filter(Boolean).join(" ")); }} />
+            <VoiceInput disabled={scanning || fixing || imageLoading} label="Dictate your ad" onTranscript={(text) => { invalidateResult(); setAdCopy((current) => [current.trimEnd(), text].filter(Boolean).join(" ")); }} />
             <textarea
               id="ad-copy"
-              disabled={scanning || fixing}
+              aria-describedby={imagePreview ? "image-copy-instruction" : undefined}
+              required
+              disabled={scanning || fixing || imageLoading}
               maxLength={10000}
               value={adCopy}
               onChange={(e) => { invalidateResult(); setAdCopy(e.target.value); }}
@@ -492,6 +516,18 @@ export default function CompliancePage() {
             </div>
 
             <p className="text-white/70 text-sm">{scanResult.summary}</p><p role="status">{scanResult.persisted ? "Saved to your scan history." : "Not saved — test result only."} {scanResult.analysis_source !== "openai" ? "Limited rule review; not a full AI assessment." : ""}</p>
+
+            {scanResult.image_attachment && <figure className="rounded-lg border border-white/20 p-3 space-y-2">
+              <figcaption className="text-sm break-words">Image for this scan: <strong>{scanResult.image_attachment.filename}</strong></figcaption>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={scanResult.image_attachment.data_url} alt={`Image saved with this scan: ${scanResult.image_attachment.filename}`} className="max-h-64 w-full object-contain bg-black/20" />
+              {scanResult.image_attachment.observations && <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                {([['EHO logo or words', 'eho'], ['Brokerage identification', 'brokerage'], ['Contact details', 'contact'], ['License disclosure', 'license']] as const).map(([label, key]) => <div key={key}><dt className="text-white/60">{label}</dt><dd>{scanResult.image_attachment?.observations?.[key].replace('_', ' ')}</dd></div>)}
+                <div className="sm:col-span-2"><dt className="text-white/60">Image scope</dt><dd>{scanResult.image_attachment.observations.creative_kind.replaceAll('_', ' ')}</dd></div>
+                <p className="sm:col-span-2 text-xs text-white/60">Not visible means absent from this image only; it does not establish a violation in the complete advertisement.</p>
+              </dl>}
+              <p className="text-xs text-white/60">Image review: {scanResult.image_attachment.review_status}. {scanResult.persisted ? "This image is saved with this result." : "This image is not saved."}</p>
+            </figure>}
 
             {scanResult.flags.length > 0 && (
               <div className="space-y-3">
@@ -599,7 +635,8 @@ export default function CompliancePage() {
               <div className="space-y-4 sm:hidden">{history.map(scan => <article key={scan.id} className="rounded-lg border border-white/15 p-3 space-y-2">
                 <p className="text-sm text-white/60">{new Date(scan.scanned_at).toLocaleDateString()} · {scan.state} · {scan.flags.length} flags</p>
                 <ComplianceBadge result={scan.result}/><p className="text-sm break-words">{scan.ad_copy.slice(0,150)}</p>
-                <button disabled={scanning || fixing} onClick={() => openSavedScan(scan)} className="min-h-11 text-blue-300 underline">View result</button>
+                {scan.image_filename && <p className="text-xs text-blue-200 break-words">Image: {scan.image_filename}</p>}
+                <button disabled={scanning || fixing || imageLoading} onClick={() => openSavedScan(scan)} className="min-h-11 text-blue-300 underline">View result</button>
               </article>)}</div>
               <div className="hidden sm:block overflow-x-auto"><table className="w-full min-w-[650px] text-sm [&_th]:pr-4 [&_td]:pr-4">
                 <thead>
@@ -629,7 +666,8 @@ export default function CompliancePage() {
                       </td>
                       <td className="py-3 text-white/50 max-w-xs truncate">
                         {scan.ad_copy.slice(0, 60)}…
-                      </td><td><button disabled={scanning || fixing} onClick={() => openSavedScan(scan)} className="min-h-11 px-3 text-blue-300 underline whitespace-nowrap">View result</button></td>
+                        {scan.image_filename && <span className="block text-xs text-blue-200 truncate">Image: {scan.image_filename}</span>}
+                      </td><td><button disabled={scanning || fixing || imageLoading} onClick={() => openSavedScan(scan)} className="min-h-11 px-3 text-blue-300 underline whitespace-nowrap">View result</button></td>
                     </tr>
                   ))}
                 </tbody>

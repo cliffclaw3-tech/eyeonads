@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { reviewSourceImage, type SourceImageReview } from './source-image-review';
 import { discoveryReport } from './discovery-report';
 import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -7,7 +8,7 @@ import { retrieveAd } from './retrieve-ad';
 import { discoveredSchema, groundCandidate, reviewableAd, validSourceURL, type DiscoveredAd } from './discovered-ad-contract';
 type Agent = {id:string;name:string;social_url?:string};
 type Setup = {name:string;website?:string;location?:string;discovery_location?:string|null};
-type Candidate = DiscoveredAd & { review: AdReview | null; review_status: 'reviewed' | 'not_reviewed' | 'failed' };
+type Candidate = DiscoveredAd & { image_review?:SourceImageReview; review: AdReview | null; review_status: 'reviewed' | 'not_reviewed' | 'failed' };
 export async function runDiscovery(db: SupabaseClient, ownerId: string, setup: Setup, agent: Agent) {
  const runId=randomUUID();
  const claim=await db.rpc('eyeonads_claim_discovery_owned',{p_owner_id:ownerId,p_agent_id:agent.id,p_agent_name:agent.name,p_run_id:runId});
@@ -42,8 +43,12 @@ export async function runDiscovery(db: SupabaseClient, ownerId: string, setup: S
     const ad=await retrieveAd(candidate,agent.name,setup.name);
     if(!reviewableAd(ad))return {...ad,review:null,review_status:'not_reviewed' as const};
     const identityExcerpts=ad.identity_evidence?[...new Set(Object.values(ad.identity_evidence))].join('\n'):'';
-    try{return {...ad,review:await reviewAdText(ad.ad_text,ad.state,`Public-web extraction, not a verified full-page capture. Agent: ${agent.name}; brokerage: ${setup.name}; source: ${ad.url}; ${ad.context}. Exact identity/contact excerpts from the same source: ${identityExcerpts}. Images, page layout and one-click social disclosures may not have been reviewed.`),review_status:'reviewed' as const};}
-    catch{return {...ad,review:null,review_status:'failed' as const};}
+    // Image and text work share the remaining worker budget; image failure never invents a disclosure finding.
+    const [text,image_review]=await Promise.all([
+      reviewAdText(ad.ad_text,ad.state,`Public-web extraction, not a verified full-page capture. Agent: ${agent.name}; brokerage: ${setup.name}; source: ${ad.url}; ${ad.context}. Exact identity/contact excerpts from the same source: ${identityExcerpts}. Image observations are reported separately; page layout and one-click social disclosures have not been reviewed.`).then(review=>({review,review_status:'reviewed' as const})).catch(()=>({review:null,review_status:'failed' as const})),
+      reviewSourceImage(ad.image_candidates?.[0],startedAt+110000),
+    ]);
+    return {...ad,...text,image_review};
   }));}
   const selected=[...watched.slice(0,2),...found.candidates].filter((ad:DiscoveredAd,index:number,list:DiscoveredAd[])=>list.findIndex(other=>other.url===ad.url)===index).slice(0,3);
   let candidates=await assess(selected,openedURLs);
@@ -63,7 +68,7 @@ export async function runDiscovery(db: SupabaseClient, ownerId: string, setup: S
   }
   const presentation=discoveryReport(candidates);
   const watchSources=[...candidates.filter(ad=>ad.review_status==='reviewed'),...watched].filter((ad,index,list)=>list.findIndex(other=>other.url===ad.url)===index).slice(0,3).map(ad=>({url:ad.url,title:ad.title,kind:ad.kind}));
-  const evidence={version:3,attempted_sources:attemptedSources,opened_urls:[...openedURLs],search_queries:searchQueries,watch_sources:watchSources,identity_note:presentation.identity_note,coverage_gaps:presentation.coverage_gaps,candidates};
+  const evidence={version:4,attempted_sources:attemptedSources,opened_urls:[...openedURLs],search_queries:searchQueries,watch_sources:watchSources,identity_note:presentation.identity_note,coverage_gaps:presentation.coverage_gaps,candidates};
   const saved=await db.from('eyeonads_discovery_reviews').update({status:'complete',report:presentation.report,sources:presentation.sources,evidence,searched_at:new Date().toISOString(),error:null}).eq('owner_id',ownerId).eq('agent_id',agent.id).eq('run_id',runId).select('agent_id,agent_name,status,report,sources,searched_at,error,evidence').single();
   if(saved.error||!saved.data)throw Error('Save failed');
   return saved.data;

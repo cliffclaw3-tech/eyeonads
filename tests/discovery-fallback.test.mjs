@@ -11,6 +11,7 @@ test('inaccessible initial sources trigger bounded alternatives and preserve tru
  const exports={};
  vm.runInNewContext(ts.transpileModule(fs.readFileSync(new URL('../src/lib/discovery-runner.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,{exports,process:{env:{OPENAI_API_KEY:'test'}},URL,Date,Set,require:name=>{
   if(name==='openai')return OpenAI;
+  if(name==='./source-image-review')return {reviewSourceImage:async()=>({status:'not_requested',observations:null,notes:'No source image.'})};
   if(name==='node:crypto')return {randomUUID:()=> 'run'};
   if(name==='./discovery-report')return {discoveryReport};
   if(name==='./ad-review')return {reviewAdText:async()=>({result:'green',summary:'No issue in sampled text.',flags:[]})};

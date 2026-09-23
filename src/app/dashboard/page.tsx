@@ -39,7 +39,7 @@ export default async function DashboardPage() {
 
   const { data: recentScans } = await supabase
     .from("compliance_scans")
-    .select("*")
+    .select("id,user_id,ad_id,ad_copy,state,result,flags,ai_explanation,analysis_source,scanned_at")
     .eq("user_id", user.id)
     .order("scanned_at", { ascending: false })
     .limit(5);

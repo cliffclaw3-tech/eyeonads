@@ -1,8 +1,9 @@
-export function validScanInput(body: unknown): body is { ad_copy: string; state: string; user_id?: string; image_base64?: string } {
+export function validScanInput(body: unknown): body is { ad_copy: string; state: string; user_id?: string; image_base64?: string; image_filename?: string } {
   if (!body || typeof body !== 'object') return false;
   const b = body as Record<string, unknown>;
   return typeof b.ad_copy === 'string' && b.ad_copy.trim().length > 0 && b.ad_copy.length <= 10000
     && typeof b.state === 'string' && ['TN', 'VA', 'NC'].includes(b.state)
+    && (b.image_filename === undefined || (typeof b.image_filename === 'string' && b.image_filename.length > 0 && b.image_filename.length <= 200 && !/[\x00-\x1f\x7f/\\]/.test(b.image_filename)))
     && (b.user_id === undefined || typeof b.user_id === 'string')
     && (b.image_base64 === undefined || (typeof b.image_base64 === 'string' && b.image_base64.length <= 2000000 && /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(b.image_base64)));
 }

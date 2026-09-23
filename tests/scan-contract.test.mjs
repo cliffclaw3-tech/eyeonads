@@ -16,3 +16,10 @@ test('ten distinct fictional fixtures produce bounded local study output', () =>
   for(const e of competitorExamples) assert.match(competitiveBrief(e.id,'my draft'),/Your draft: my draft/);
   assert.throws(()=>competitiveBrief('unknown',''));
 });
+
+test('upload filename is bounded and cannot carry path or control characters',()=>{
+ const valid={ad_copy:'Ad',state:'TN',image_base64:'data:image/png;base64,YQ==',image_filename:'My home.png'};
+ assert.equal(validScanInput(valid),true);
+ for(const image_filename of ['',42,'x'.repeat(201),'../secret.png','a\\b.png','bad\nname.png'])assert.equal(validScanInput({...valid,image_filename}),false);
+ assert.equal(validScanInput({...valid,image_base64:'data:image/png;base64,'+'A'.repeat(2000000)}),false);
+});
