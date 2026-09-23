@@ -3,6 +3,7 @@
 import { useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 type Role = "agent" | "broker";
 type State = "TN" | "VA" | "NC";
@@ -14,6 +15,7 @@ function SignupForm() {
 
   const [role, setRole] = useState<Role>(initialRole);
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [companySize, setCompanySize] = useState("1-5");
@@ -26,32 +28,28 @@ function SignupForm() {
     setLoading(true);
     setError(null);
 
-    const response = await fetch("/api/signup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        company_name: companyName,
-        contact_name: fullName,
-        email,
-        role,
-        company_size: companySize,
-        state,
-        source: "eyeonads-signup-page",
-      }),
-    });
-
-    if (!response.ok) {
-      const result = (await response.json().catch(() => null)) as
-        | { error?: string }
-        | null;
-      setError(result?.error ?? "Signup failed");
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
       setLoading(false);
       return;
     }
 
-    router.push(
-      `/login?message=Check+your+email+to+confirm+your+account`
-    );
+    try {
+      const supabase = createClient();
+      const { data, error: signupError } = await supabase.auth.signUp({
+        email: email.trim(), password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+          data: { full_name: fullName, company_name: companyName, role, company_size: companySize, state },
+        },
+      });
+      if (signupError) throw signupError;
+      router.push(data.session ? "/dashboard" : "/login?message=Check+your+email+to+verify+your+account+before+signing+in");
+    } catch {
+      setError("Signup could not be completed. Try again, or sign in if you already have an account.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -95,7 +93,7 @@ function SignupForm() {
                 >
                   {r === "agent" ? "🏠 Agent" : "🏢 Broker"}
                   <div className="text-xs font-normal mt-0.5">
-                    {r === "agent" ? "$49/mo" : "$149/mo"}
+                    Free beta · no billing
                   </div>
                 </button>
               ))}
@@ -144,6 +142,21 @@ function SignupForm() {
               required
               className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="jane@realty.com"
+            />
+          </div>
+
+          <div>
+            <label className="block text-white/70 text-sm mb-1 font-medium">
+              Password
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={8}
+              className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="At least 8 characters"
             />
           </div>
 

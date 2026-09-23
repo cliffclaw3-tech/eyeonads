@@ -210,6 +210,7 @@ export interface Database {
           state: string
           result: 'green' | 'yellow' | 'red'
           flags: ComplianceFlag[]
+          analysis_source?: string | null
           ai_explanation: string | null
           scanned_at: string
         }
@@ -221,12 +222,14 @@ export interface Database {
           state: string
           result: 'green' | 'yellow' | 'red'
           flags: ComplianceFlag[]
+          analysis_source?: string | null
           ai_explanation?: string | null
           scanned_at?: string
         }
         Update: {
           result?: 'green' | 'yellow' | 'red'
           flags?: ComplianceFlag[]
+          analysis_source?: string | null
           ai_explanation?: string | null
         }
       }

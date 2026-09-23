@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as nodemailer from "nodemailer";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/types";
+import { recoveryOrigin } from "@/lib/password-recovery";
 
 type UserProfile = Database["public"]["Tables"]["user_profiles"]["Row"];
 type AdPerformance = Database["public"]["Tables"]["ad_performance"]["Row"];
@@ -13,11 +14,33 @@ type WeeklyReportBody = {
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    }
+
+    let origin: string;
+    try {
+      origin = recoveryOrigin(process.env.NEXT_PUBLIC_APP_URL);
+    } catch {
+      return NextResponse.json({ error: "Weekly reports are temporarily unavailable." }, { status: 503 });
+    }
+    if (request.headers.get("origin") !== origin) {
+      return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
+    }
+
     const body = (await request.json()) as WeeklyReportBody;
     const { user_id } = body;
 
     if (!user_id) {
       return NextResponse.json({ error: "Missing user_id" }, { status: 400 });
+    }
+
+    if (user_id !== user.id) {
+      return NextResponse.json({ error: "Authenticated user mismatch" }, { status: 403 });
     }
 
     if (!process.env.ZOHO_SMTP_USER || !process.env.ZOHO_SMTP_PASSWORD) {
@@ -26,8 +49,6 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
-
-    const supabase = await createClient();
 
     const { data: profile } = await supabase
       .from("user_profiles")

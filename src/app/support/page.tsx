@@ -1,0 +1,2 @@
+import Link from "next/link";
+export default function SupportPage() { return <main className="p-8 max-w-xl mx-auto"><h1 className="text-2xl font-bold">Beta support</h1><p className="my-4">A monitored support contact is not yet available. Do not submit private account information here. For account access, use password recovery.</p><Link className="underline" href="/forgot-password">Recover account access</Link><p className="mt-4"><Link href="/">Return home</Link></p></main>; }

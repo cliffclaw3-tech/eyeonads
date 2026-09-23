@@ -1,0 +1,11 @@
+CREATE ROLE authenticated; CREATE ROLE anon; CREATE ROLE service_role BYPASSRLS;
+CREATE SCHEMA auth;
+CREATE TABLE auth.users(id uuid primary key);
+CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT nullif(current_setting('test.owner',true),'')::uuid $$;
+GRANT USAGE ON SCHEMA auth TO authenticated,service_role;
+INSERT INTO auth.users VALUES ('11111111-1111-1111-1111-111111111111'),('22222222-2222-2222-2222-222222222222');
+CREATE TABLE eyeonads_brokerage_setups(owner_id uuid,agents jsonb,name text);
+CREATE TABLE eyeonads_discovery_reviews(owner_id uuid,agent_id text,status text);
+INSERT INTO eyeonads_brokerage_setups VALUES('11111111-1111-1111-1111-111111111111','[{"id":"one","name":"One"},{"id":"two","name":"Two"},{"id":"done","name":"Done"}]','Test');
+INSERT INTO eyeonads_discovery_reviews VALUES('11111111-1111-1111-1111-111111111111','done','complete');
+CREATE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql AS $$ SELECT '{"app_metadata":{"eyeonads_pilot":true}}'::jsonb $$;

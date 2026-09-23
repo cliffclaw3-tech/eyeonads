@@ -1,0 +1,7 @@
+.env*
+.signup-db.json
+node_modules
+.git
+tests
+scripts
+*.tsbuildinfo

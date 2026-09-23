@@ -92,11 +92,11 @@ function LoginForm() {
             className="bg-white/5 border border-white/10 rounded-2xl p-8 space-y-5"
           >
             <div>
-              <label className="block text-white/70 text-sm mb-1 font-medium">
+              <label htmlFor="login-email" className="block text-white/70 text-sm mb-1 font-medium">
                 Email
               </label>
               <input
-                type="email"
+                id="login-email" autoComplete="email" type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -108,7 +108,7 @@ function LoginForm() {
             {!magicMode && (
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-white/70 text-sm font-medium">
+                  <label htmlFor="login-password" className="text-white/70 text-sm font-medium">
                     Password
                   </label>
                   <button
@@ -120,13 +120,16 @@ function LoginForm() {
                   </button>
                 </div>
                 <input
-                  type="password"
+                  id="login-password" autoComplete="current-password" type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required={!magicMode}
                   className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Your password"
                 />
+                <Link href="/forgot-password" className="mt-2 inline-block text-blue-400 text-sm hover:underline">
+                  Forgot password?
+                </Link>
               </div>
             )}
 

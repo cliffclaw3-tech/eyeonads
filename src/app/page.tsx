@@ -5,7 +5,7 @@ export default function HomePage() {
     <div className="min-h-screen bg-[#0d1b2a] text-white">
       {/* Navigation */}
       <nav className="border-b border-white/10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-wrap gap-4 items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-2xl" aria-hidden="true">👁</span>
             <span className="leading-tight">
@@ -15,7 +15,7 @@ export default function HomePage() {
           </div>
           <div className="flex items-center gap-4">
             <a
-              href="mailto:feedback@shieldsenterprises.example?subject=EyeOnAds%20beta%20feedback"
+              href="/support"
               title="Share feedback or suggest a feature"
               className="rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-xs font-semibold text-white/60 hover:text-white"
             >
@@ -41,20 +41,18 @@ export default function HomePage() {
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 text-center">
         <div className="inline-flex items-center gap-2 bg-blue-600/20 border border-blue-500/30 rounded-full px-4 py-1.5 text-blue-300 text-sm mb-8">
           <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-          Now monitoring real estate ads 24/7
+          Brokerage beta: public marketing discovery
         </div>
         <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight mb-6 leading-tight">
-          AI keeps an eye on{" "}
-          <span className="text-blue-400">your agents&apos; ads.</span>
+          Review your brokerage’s{" "}
+          <span className="text-blue-400">public marketing.</span>
           <br />
           <span className="text-white/80 text-4xl sm:text-5xl lg:text-6xl font-semibold">
-            24/7 compliance + performance — so you don&apos;t have to.
+            Find potential issues. Keep the broker in control.
           </span>
         </h1>
         <p className="text-xl text-white/60 max-w-2xl mx-auto mb-12">
-          EyeOnAds automatically scans every ad your team runs for Tennessee RE
-          Commission violations, Fair Housing issues, and performance drops.
-          Know before the commission does.
+          Build your agent roster, search public marketing, and review source-linked findings. You can also scan pasted or dictated ad copy. Public search is incomplete and every potential issue needs broker review.
         </p>
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
           <Link
@@ -62,14 +60,14 @@ export default function HomePage() {
             className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-4 rounded-xl font-semibold text-lg transition shadow-lg shadow-blue-600/20"
           >
             Start as Agent{" "}
-            <span className="text-blue-200 font-normal">($49/mo)</span>
+            <span className="text-blue-200 font-normal">(free beta)</span>
           </Link>
           <Link
             href="/signup?role=broker"
             className="bg-white text-[#0d1b2a] hover:bg-blue-50 px-8 py-4 rounded-xl font-semibold text-lg transition shadow-lg"
           >
             Start as Broker{" "}
-            <span className="text-gray-600 font-normal">($149/mo)</span>
+            <span className="text-gray-600 font-normal">(free beta)</span>
           </Link>
         </div>
       </section>
@@ -82,24 +80,24 @@ export default function HomePage() {
               The Risk Is Real
             </span>
             <h2 className="text-3xl font-bold text-white mt-2">
-              Brokers are personally liable for every ad their agents run.
+              A clear roster. Visible gaps. Evidence you can review.
             </h2>
           </div>
           <div className="grid sm:grid-cols-3 gap-6 max-w-5xl mx-auto">
             {[
               {
-                stat: "$10,000+",
-                label: "Per violation fine from Tennessee RE Commission",
+                stat: "Roster",
+                label: "See which agents and offices are included—and which are still missing",
               },
               {
-                stat: "License",
+                stat: "Evidence",
                 label:
-                  "At risk — yours, not just the agent's — for advertising violations",
+                  "Open the source behind a potential issue before making a decision",
               },
               {
-                stat: "1 in 4",
+                stat: "Coverage",
                 label:
-                  "Real estate Facebook ads missing required Fair Housing language",
+                  "Separate completed public searches from private, paid, and offline marketing that remains unverified",
               },
             ].map((item) => (
               <div
@@ -137,13 +135,13 @@ export default function HomePage() {
             {
               icon: "📊",
               title: "Performance Dashboard",
-              desc: "Connect Meta Ads and Google Ads via OAuth. See spend, impressions, clicks, and CTR in one place — updated daily so you catch underperforming ads before they drain budgets.",
+              desc: "Saved scan history keeps recent pasted-copy reviews together. Meta and Google account connections are unavailable during this beta.",
               highlight: "bg-blue-900/20 border-blue-800/40",
             },
             {
               icon: "📬",
               title: "Weekly Reports",
-              desc: "Every Monday, brokers receive a brokerage-wide report: compliance status per agent, top performing ads, and any red flags from the previous week — straight to your inbox.",
+              desc: "Use saved scan history to review recent results. Scheduled reports and automated alerts are not part of this beta candidate.",
               highlight: "bg-purple-900/20 border-purple-800/40",
             },
           ].map((f) => (
@@ -177,13 +175,13 @@ export default function HomePage() {
               },
               {
                 step: "2",
-                title: "Connect your ad accounts",
-                desc: "Authorize Meta Ads and Google Ads with one click. We pull your live data securely.",
+                title: "Submit ad copy",
+                desc: "Paste or dictate the ad copy you want reviewed. Ad-account connections are unavailable during beta.",
               },
               {
                 step: "3",
-                title: "Let AI do the watching",
-                desc: "EyeOnAds scans new ads automatically and alerts you the moment something looks off.",
+                title: "Review the saved result",
+                desc: "Review the result and its flags, then use your professional judgment before publishing.",
               },
             ].map((s) => (
               <div key={s.step} className="flex gap-4">
@@ -203,7 +201,7 @@ export default function HomePage() {
       {/* Pricing / CTA */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
         <div className="text-center mb-16">
-          <h2 className="text-4xl font-bold text-white">Simple pricing</h2>
+          <h2 className="text-4xl font-bold text-white">Free beta · no billing</h2>
           <p className="text-white/60 mt-2">
             Cancel any time. No contracts.
           </p>
@@ -213,14 +211,14 @@ export default function HomePage() {
             <div className="text-blue-400 font-semibold text-sm uppercase tracking-widest mb-4">
               Agent
             </div>
-            <div className="text-5xl font-bold text-white mb-1">$49</div>
-            <div className="text-white/50 text-sm mb-8">/month</div>
+            <div className="text-5xl font-bold text-white mb-1">Free</div>
+            <div className="text-white/50 text-sm mb-8">during beta</div>
             <ul className="space-y-3 mb-8 text-white/70 text-sm">
               {[
                 "Unlimited compliance scans",
-                "Meta + Google ad account connect",
-                "Weekly performance report",
-                "Real-time violation alerts",
+                "Saved personal scan history",
+                "Pasted-copy review",
+                "Professional review reminder",
               ].map((l) => (
                 <li key={l} className="flex items-center gap-2">
                   <span className="text-green-400">✓</span> {l}
@@ -241,14 +239,14 @@ export default function HomePage() {
             <div className="text-blue-100 font-semibold text-sm uppercase tracking-widest mb-4">
               Broker
             </div>
-            <div className="text-5xl font-bold text-white mb-1">$149</div>
-            <div className="text-blue-200 text-sm mb-8">/month</div>
+            <div className="text-5xl font-bold text-white mb-1">Free</div>
+            <div className="text-blue-200 text-sm mb-8">during beta</div>
             <ul className="space-y-3 mb-8 text-blue-100 text-sm">
               {[
                 "Everything in Agent",
                 "Brokerage-wide compliance dashboard",
                 "All agents under one account",
-                "Weekly brokerage report + email alerts",
+                "Saved brokerage scan history",
                 "Invite agents via brokerage code",
               ].map((l) => (
                 <li key={l} className="flex items-center gap-2">

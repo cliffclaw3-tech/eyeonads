@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { VoiceInput } from "@/components/VoiceInput";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import type { Database, ComplianceFlag } from "@/lib/supabase/types";
@@ -11,6 +12,9 @@ type ScanResult = {
   result: "green" | "yellow" | "red";
   flags: ComplianceFlag[];
   summary: string;
+  persisted?: boolean;
+  scan_id?: string;
+  analysis_source?: string;
 };
 
 function ComplianceBadge({ result }: { result: "green" | "yellow" | "red" }) {
@@ -19,7 +23,7 @@ function ComplianceBadge({ result }: { result: "green" | "yellow" | "red" }) {
       bg: "bg-green-900/30",
       border: "border-green-600",
       text: "text-green-400",
-      label: "GREEN — Compliant",
+      label: "GREEN — No issues detected",
       emoji: "✅",
     },
     yellow: {
@@ -33,7 +37,7 @@ function ComplianceBadge({ result }: { result: "green" | "yellow" | "red" }) {
       bg: "bg-red-900/30",
       border: "border-red-600",
       text: "text-red-400",
-      label: "RED — Violation Found",
+      label: "RED — Potential issue",
       emoji: "🚨",
     },
   };
@@ -70,6 +74,10 @@ export default function CompliancePage() {
   const [adCopy, setAdCopy] = useState("");
   const [state, setState] = useState<string>("TN");
   const [scanning, setScanning] = useState(false);
+  const [scannedInput, setScannedInput] = useState<{ adCopy: string; state: string } | null>(null);
+  const inputVersion = useRef(0);
+  const imageReadVersion = useRef(0);
+  const [imageLoading, setImageLoading] = useState(false);
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<ComplianceScan[]>([]);
@@ -94,7 +102,7 @@ export default function CompliancePage() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) { window.location.assign("/login"); return; }
 
       // Get user's state from profile
       const { data: profile } = await supabase
@@ -105,27 +113,56 @@ export default function CompliancePage() {
       if (profile?.state) setState(profile.state);
 
       // Load scan history
-      const { data: scans } = await supabase
+      const { data: scans, error: historyError } = await supabase
         .from("compliance_scans")
         .select("*")
         .eq("user_id", user.id)
         .order("scanned_at", { ascending: false })
         .limit(10);
+      if (historyError) setError("Saved history could not be loaded. Refresh to retry.");
       setHistory((scans as ComplianceScan[]) ?? []);
       setHistoryLoading(false);
     }
     load();
   }, []);
 
+  function invalidateResult() {
+    inputVersion.current += 1;
+    setScanResult(null);
+    setScannedInput(null);
+    setFixedCopy(null);
+    setFixError(null);
+    setCopied(false);
+  }
+
   function handleImageFile(file: File) {
-    if (!file.type.startsWith("image/")) return;
-    setImageFile(file);
+    if (scanning || fixing) return;
+    if (!["image/jpeg", "image/png"].includes(file.type)) {
+      setError("Choose a JPG or PNG image.");
+      return;
+    }
+    if (4 * Math.ceil(file.size / 3) + `data:${file.type};base64,`.length > 2_000_000) {
+      setError("This image is too large. Choose a JPG or PNG smaller than 1.5 MB.");
+      return;
+    }
+    invalidateResult();
+    setError(null);
+    setImageLoading(true);
+    const readVersion = ++imageReadVersion.current;
 
     const reader = new FileReader();
     reader.onload = (e) => {
+      if (readVersion !== imageReadVersion.current) return;
       const result = e.target?.result as string;
+      setImageLoading(false);
+      setImageFile(file);
       setImagePreview(result);
       setImageBase64(result);
+    };
+    reader.onerror = () => {
+      if (readVersion !== imageReadVersion.current) return;
+      setImageLoading(false);
+      setError("The image could not be read. Choose it again or try another JPG or PNG.");
     };
     reader.readAsDataURL(file);
   }
@@ -152,14 +189,30 @@ export default function CompliancePage() {
   }
 
   function clearImage() {
+    if (scanning || fixing) return;
+    invalidateResult();
+    imageReadVersion.current += 1;
+    setImageLoading(false);
     setImageFile(null);
     setImagePreview(null);
     setImageBase64(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
+  function openSavedScan(scan: ComplianceScan) {
+    if (scanning || fixing) return;
+    clearImage();
+    setAdCopy(scan.ad_copy); setState(scan.state);
+    setScannedInput({adCopy: scan.ad_copy, state: scan.state});
+    setScanResult({result: scan.result, flags: scan.flags, summary: scan.ai_explanation ?? "Saved review", persisted: true, scan_id: scan.id, analysis_source: scan.analysis_source ?? "unknown"});
+    setFixedCopy(null); setError(null);
+    window.setTimeout(() => document.getElementById("scan-result")?.scrollIntoView({behavior: "smooth", block: "start"}), 0);
+  }
+
   const handleScan = async () => {
-    if (!adCopy.trim()) return;
+    if (!adCopy.trim() || scanning || fixing || imageLoading) return;
+    const submitted = { adCopy, state };
+    const version = inputVersion.current;
     setScanning(true);
     setError(null);
     setScanResult(null);
@@ -176,8 +229,8 @@ export default function CompliancePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ad_copy: adCopy,
-          state,
+          ad_copy: submitted.adCopy,
+          state: submitted.state,
           user_id: user?.id ?? "",
           ...(imageBase64 ? { image_base64: imageBase64 } : {}),
         }),
@@ -191,17 +244,21 @@ export default function CompliancePage() {
         throw new Error((data as { error?: string }).error ?? "Scan failed");
       }
 
-      setScanResult(data.result ?? null);
+      if (version !== inputVersion.current) return;
+      if (!data.result) throw new Error("No scan result was returned. Please try again.");
+      setScannedInput(submitted);
+      setScanResult(data.result);
 
       // Refresh history
       if (user) {
-        const { data: scans } = await supabase
+        const { data: scans, error: historyError } = await supabase
           .from("compliance_scans")
           .select("*")
           .eq("user_id", user.id)
           .order("scanned_at", { ascending: false })
           .limit(10);
-        setHistory((scans as ComplianceScan[]) ?? []);
+        if (historyError) setError("Saved history could not be loaded. Refresh to retry.");
+      setHistory((scans as ComplianceScan[]) ?? []);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -211,7 +268,8 @@ export default function CompliancePage() {
   };
 
   const handleFixAd = async () => {
-    if (!scanResult) return;
+    if (!scanResult || !scannedInput || fixing) return;
+    const version = inputVersion.current;
     setFixing(true);
     setFixError(null);
     setFixedCopy(null);
@@ -221,9 +279,9 @@ export default function CompliancePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ad_copy: adCopy,
+          ad_copy: scannedInput.adCopy,
           flags: scanResult.flags,
-          state,
+          state: scannedInput.state,
         }),
       });
 
@@ -236,7 +294,9 @@ export default function CompliancePage() {
         throw new Error(data.error ?? "Fix failed");
       }
 
-      setFixedCopy(data.rewritten_copy ?? null);
+      if (version !== inputVersion.current) return;
+      if (!data.rewritten_copy) throw new Error("No revision was returned. Please try again.");
+      setFixedCopy(data.rewritten_copy);
     } catch (err) {
       setFixError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -246,9 +306,14 @@ export default function CompliancePage() {
 
   const handleCopy = async () => {
     if (!fixedCopy) return;
-    await navigator.clipboard.writeText(fixedCopy);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(fixedCopy);
+      setCopied(true);
+      setFixError(null);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setFixError("Copy was unavailable. Select the suggested revision and copy it manually.");
+    }
   };
 
   const hasIssues = scanResult && (scanResult.result === "red" || scanResult.result === "yellow");
@@ -257,7 +322,7 @@ export default function CompliancePage() {
     <div className="min-h-screen bg-[#0d1b2a] text-white">
       {/* Topbar */}
       <header className="border-b border-white/10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center gap-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-wrap items-center gap-4">
           <Link
             href="/dashboard"
             className="text-white/50 hover:text-white text-sm"
@@ -270,7 +335,7 @@ export default function CompliancePage() {
             <span className="block text-[11px] font-normal text-white/50">a Shields Enterprises solution</span>
           </span>
           <a
-            href="mailto:feedback@shieldsenterprises.example?subject=EyeOnAds%20beta%20feedback"
+            href="/support"
             title="Share feedback or suggest a feature"
             className="ml-auto rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-xs font-semibold text-white/60 hover:text-white"
           >
@@ -283,20 +348,21 @@ export default function CompliancePage() {
         <div>
           <h1 className="text-3xl font-bold text-white">Compliance Scanner</h1>
           <p className="text-white/50 mt-1 text-sm">
-            Paste your ad copy below. AI will check it against Tennessee RE
-            Commission rules and Fair Housing law.
+            Paste your ad copy for an automated review. Limited rules are used when AI analysis is unavailable. Results require professional review.
           </p>
         </div>
 
         {/* Scanner form */}
         <div className="bg-white/5 border border-white/10 rounded-xl p-6 space-y-4">
-          <div className="flex items-center gap-4">
-            <label className="text-white/70 text-sm font-medium shrink-0">
+          <div className="flex flex-wrap items-center gap-4">
+            <label htmlFor="scan-state" className="text-white/70 text-sm font-medium shrink-0">
               State:
             </label>
             <select
+              id="scan-state"
+              disabled={scanning || fixing}
               value={state}
-              onChange={(e) => setState(e.target.value)}
+              onChange={(e) => { invalidateResult(); setState(e.target.value); }}
               className="bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="TN">Tennessee (TN)</option>
@@ -307,7 +373,7 @@ export default function CompliancePage() {
 
           {/* Image Upload */}
           <div>
-            <label className="block text-white/70 text-sm font-medium mb-2">
+            <label htmlFor="ad-image" className="block text-white/70 text-sm font-medium mb-2">
               Ad Creative (Optional)
             </label>
             {!imagePreview ? (
@@ -315,7 +381,17 @@ export default function CompliancePage() {
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
-                onClick={() => fileInputRef.current?.click()}
+                role="button"
+                tabIndex={scanning || fixing ? -1 : 0}
+                aria-label="Upload ad image"
+                aria-disabled={scanning || fixing}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    if (!scanning && !fixing) fileInputRef.current?.click();
+                  }
+                }}
+                onClick={() => { if (!scanning && !fixing) fileInputRef.current?.click(); }}
                 className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
                   isDragging
                     ? "border-blue-400 bg-blue-500/10"
@@ -326,11 +402,14 @@ export default function CompliancePage() {
                 <p className="text-white/60 text-sm font-medium">
                   Drop your ad image here, or click to upload
                 </p>
-                <p className="text-white/30 text-xs mt-1">JPG, PNG supported</p>
+                <p className="text-white/30 text-xs mt-1">JPG or PNG, smaller than 1.5 MB</p>
                 <input
                   ref={fileInputRef}
+                  id="ad-image"
+                  disabled={scanning || fixing}
                   type="file"
                   accept="image/jpeg,image/png,image/jpg"
+                  onClick={(event) => event.stopPropagation()}
                   onChange={handleFileInputChange}
                   className="hidden"
                 />
@@ -349,6 +428,7 @@ export default function CompliancePage() {
                   </span>
                   <button
                     onClick={clearImage}
+                    disabled={scanning || fixing}
                     className="bg-red-900/80 hover:bg-red-700 text-white text-xs px-2 py-1 rounded-full transition"
                   >
                     ✕ Remove
@@ -356,20 +436,25 @@ export default function CompliancePage() {
                 </div>
                 <div className="absolute bottom-2 left-2">
                   <span className="bg-blue-600/80 text-white text-xs px-2 py-1 rounded-full">
-                    ✓ Will be analyzed for visual compliance
+                    Image attached — review availability shown in results
                   </span>
                 </div>
               </div>
             )}
           </div>
 
+          {imageLoading && <p role="status" className="text-white/70 text-sm">Loading image…</p>}
           <div>
-            <label className="block text-white/70 text-sm font-medium mb-2">
+            <label htmlFor="ad-copy" className="block text-white/70 text-sm font-medium mb-2">
               Ad Copy
             </label>
+            <VoiceInput disabled={scanning || fixing} label="Dictate your ad" onTranscript={(text) => { invalidateResult(); setAdCopy((current) => [current.trimEnd(), text].filter(Boolean).join(" ")); }} />
             <textarea
+              id="ad-copy"
+              disabled={scanning || fixing}
+              maxLength={10000}
               value={adCopy}
-              onChange={(e) => setAdCopy(e.target.value)}
+              onChange={(e) => { invalidateResult(); setAdCopy(e.target.value); }}
               rows={6}
               className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
               placeholder="Paste your ad copy here… e.g. 'Beautiful 3BR/2BA home in Brentwood. Call Jane Smith for a showing! Best agent in Nashville!'"
@@ -377,15 +462,15 @@ export default function CompliancePage() {
           </div>
 
           {error && (
-            <div className="bg-red-900/40 border border-red-700 rounded-lg px-4 py-3 text-red-300 text-sm">
+            <div role="alert" className="bg-red-900/40 border border-red-700 rounded-lg px-4 py-3 text-red-300 text-sm">
               {error}
             </div>
           )}
 
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap gap-3 items-center justify-between">
             <button
               onClick={handleScan}
-              disabled={scanning || !adCopy.trim()}
+              disabled={scanning || fixing || imageLoading || !adCopy.trim()}
               className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-6 py-3 rounded-xl font-semibold transition"
             >
               {scanning ? "Scanning…" : "🛡️ Scan Now"}
@@ -398,15 +483,15 @@ export default function CompliancePage() {
 
         {/* Scan Result */}
         {scanResult && (
-          <div className="bg-white/5 border border-white/10 rounded-xl p-6 space-y-4">
-            <div className="flex items-center justify-between">
+          <div id="scan-result" className="bg-white/5 border border-white/10 rounded-xl p-6 space-y-4">
+            <div className="flex flex-wrap gap-3 items-center justify-between">
               <h2 className="text-lg font-semibold text-white">
                 Scan Result
               </h2>
               <ComplianceBadge result={scanResult.result} />
             </div>
 
-            <p className="text-white/70 text-sm">{scanResult.summary}</p>
+            <p className="text-white/70 text-sm">{scanResult.summary}</p><p role="status">{scanResult.persisted ? "Saved to your scan history." : "Not saved — test result only."} {scanResult.analysis_source !== "openai" ? "Limited rule review; not a full AI assessment." : ""}</p>
 
             {scanResult.flags.length > 0 && (
               <div className="space-y-3">
@@ -434,13 +519,15 @@ export default function CompliancePage() {
             )}
 
             {scanResult.flags.length === 0 && (
-              <div className="bg-green-900/20 border border-green-800/40 rounded-lg px-4 py-3 text-green-300 text-sm">
-                No compliance flags found. Your ad looks good!
+              <div className="bg-white/5 border border-white/20 rounded-lg px-4 py-3 text-white/80 text-sm">
+                {scanResult.analysis_source === "openai" && scanResult.result === "green"
+                  ? "No issues were detected by this review. Check the complete ad and applicable requirements before publishing."
+                  : "No issues were detected by the limited checks. This review is incomplete; verify the ad before publishing."}
               </div>
             )}
 
             {/* Fix My Ad button */}
-            {hasIssues && !fixedCopy && (
+            {hasIssues && scanResult.flags.length > 0 && !fixedCopy && (
               <div className="pt-2">
                 <button
                   onClick={handleFixAd}
@@ -465,22 +552,24 @@ export default function CompliancePage() {
             {/* Fixed Copy Result */}
             {fixedCopy && (
               <div className="border-2 border-green-600 rounded-xl p-5 space-y-3 bg-green-900/10">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap gap-3 items-center justify-between">
                   <h3 className="text-green-400 font-semibold text-base">
-                    ✅ Compliant Version
+                    Suggested revision — review before use
                   </h3>
                   <button
                     onClick={handleFixAd}
+                    disabled={fixing}
                     className="text-white/40 hover:text-white/70 text-xs transition"
                     title="Regenerate"
                   >
                     ↺ Regenerate
                   </button>
                 </div>
+                {fixError && <p role="alert" className="text-red-300 text-sm">{fixError}</p>}
                 <pre className="text-white/90 text-sm whitespace-pre-wrap font-sans leading-relaxed bg-white/5 rounded-lg p-4">
                   {fixedCopy}
                 </pre>
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap gap-3 items-center justify-between">
                   <button
                     onClick={handleCopy}
                     className="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
@@ -488,7 +577,7 @@ export default function CompliancePage() {
                     {copied ? "✓ Copied!" : "📋 Copy to Clipboard"}
                   </button>
                   <p className="text-white/40 text-xs">
-                    Add your actual license number before posting
+                    Verify all facts and replace any bracketed placeholders before posting
                   </p>
                 </div>
               </div>
@@ -506,15 +595,20 @@ export default function CompliancePage() {
           ) : history.length === 0 ? (
             <p className="text-white/40 text-sm">No scans yet.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <div>
+              <div className="space-y-4 sm:hidden">{history.map(scan => <article key={scan.id} className="rounded-lg border border-white/15 p-3 space-y-2">
+                <p className="text-sm text-white/60">{new Date(scan.scanned_at).toLocaleDateString()} · {scan.state} · {scan.flags.length} flags</p>
+                <ComplianceBadge result={scan.result}/><p className="text-sm break-words">{scan.ad_copy.slice(0,150)}</p>
+                <button disabled={scanning || fixing} onClick={() => openSavedScan(scan)} className="min-h-11 text-blue-300 underline">View result</button>
+              </article>)}</div>
+              <div className="hidden sm:block overflow-x-auto"><table className="w-full min-w-[650px] text-sm [&_th]:pr-4 [&_td]:pr-4">
                 <thead>
                   <tr className="text-white/40 text-xs uppercase tracking-widest border-b border-white/10">
                     <th className="pb-2 text-left">Date</th>
                     <th className="pb-2 text-left">State</th>
                     <th className="pb-2 text-left">Result</th>
                     <th className="pb-2 text-left">Flags</th>
-                    <th className="pb-2 text-left">Ad Copy Preview</th>
+                    <th className="pb-2 text-left">Ad Copy Preview</th><th className="pb-2 text-left">Review</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
@@ -535,11 +629,11 @@ export default function CompliancePage() {
                       </td>
                       <td className="py-3 text-white/50 max-w-xs truncate">
                         {scan.ad_copy.slice(0, 60)}…
-                      </td>
+                      </td><td><button disabled={scanning || fixing} onClick={() => openSavedScan(scan)} className="min-h-11 px-3 text-blue-300 underline whitespace-nowrap">View result</button></td>
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             </div>
           )}
         </div>

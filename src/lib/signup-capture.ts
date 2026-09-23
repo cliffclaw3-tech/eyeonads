@@ -109,6 +109,10 @@ async function persistSupabase(
 }
 
 async function sendEmail1(company: CompanyRecord) {
+  if (process.env.EYEONADS_CANARY_SINK === "1") {
+    return { provider: "canary-sink", status: "skipped", message: "Canary sink mode" };
+  }
+
   if (!process.env.SENDGRID_API_KEY) {
     return { provider: "ledger", status: "queued", message: "SENDGRID_API_KEY not configured" };
   }

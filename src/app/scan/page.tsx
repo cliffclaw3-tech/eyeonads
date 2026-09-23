@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
+import type { ComplianceFlag } from "@/lib/supabase/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -12,7 +14,20 @@ interface ScanResult {
   violations: number;
   fineMin: number;
   fineMax: number;
+  result: "green" | "yellow" | "red";
+  flags: ComplianceFlag[];
+  summary: string;
 }
+
+type ApiScanResponse = {
+  result?: {
+    result: "green" | "yellow" | "red";
+    flags: ComplianceFlag[];
+    summary: string;
+    canary_sink?: boolean;
+  };
+  error?: string;
+};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -75,45 +90,64 @@ const TESTIMONIALS = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function seededRandom(seed: string): number {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) {
-    const char = seed.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash |= 0;
-  }
-  return Math.abs(hash) / 2147483647;
-}
-
-function computeResult(brokerage: string): ScanResult {
-  const r = seededRandom(brokerage.toLowerCase().trim());
-  const violations = Math.floor(r * 7) + 2; // 2–8
-  const fineMin = violations * 2500;
-  const fineMax = violations * 8000;
-  return { brokerage, violations, fineMin, fineMax };
-}
-
 function formatDollar(n: number): string {
   return "$" + n.toLocaleString("en-US");
+}
+
+function buildAdCopyFromBrokerage(brokerage: string): string {
+  return `${brokerage} just listed a dream home near top schools. Message us today for a private showing and ask about our exclusive buyer list.`;
+}
+
+async function runRealScan(brokerage: string): Promise<ScanResult> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    throw new Error("Sign in before running the live compliance scan.");
+  }
+
+  const response = await fetch("/api/scan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ad_copy: buildAdCopyFromBrokerage(brokerage),
+      state: "TN",
+    }),
+  });
+
+  const data = (await response.json()) as ApiScanResponse;
+  if (!response.ok || !data.result) {
+    throw new Error(data.error ?? "Scan failed");
+  }
+
+  const flags = data.result.flags ?? [];
+  const violations = Math.max(flags.length, data.result.result === "green" ? 0 : 1);
+  return {
+    brokerage,
+    violations,
+    fineMin: violations * 2500,
+    fineMax: violations * 8000,
+    result: data.result.result,
+    flags,
+    summary: data.result.summary,
+  };
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function ScanAnimation({
+  brokerage,
   onComplete,
 }: {
+  brokerage: string;
   onComplete: (result: ScanResult) => void;
 }) {
   const [stepIndex, setStepIndex] = useState(0);
   const [progress, setProgress] = useState(0);
-  const brokerage = useRef<string>("");
-
-  useEffect(() => {
-    brokerage.current =
-      typeof window !== "undefined"
-        ? localStorage.getItem("eyeonads_scan_brokerage") ?? "Your Brokerage"
-        : "Your Brokerage";
-  }, []);
+  const [error, setError] = useState<string | null>(null);
+  const scanStarted = useRef(false);
 
   useEffect(() => {
     let elapsed = 0;
@@ -134,14 +168,20 @@ function ScanAnimation({
 
       if (elapsed >= total) {
         clearInterval(interval);
-        setTimeout(() => {
-          onComplete(computeResult(brokerage.current));
+        if (scanStarted.current) return;
+        scanStarted.current = true;
+        setTimeout(async () => {
+          try {
+            onComplete(await runRealScan(brokerage));
+          } catch (scanError) {
+            setError(scanError instanceof Error ? scanError.message : "Scan failed");
+          }
         }, 300);
       }
     }, 50);
 
     return () => clearInterval(interval);
-  }, [onComplete]);
+  }, [brokerage, onComplete]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-[#0d1b2a] px-4 py-16">
@@ -212,8 +252,19 @@ function ScanAnimation({
         </div>
 
         <p className="text-white/20 text-xs text-center mt-8">
-          Checking publicly visible ad data only — no passwords required
+          Sign in to scan the ad copy you provide
         </p>
+        {error && (
+          <div
+            data-testid="scan-error"
+            className="mt-6 bg-red-900/40 border border-red-700 rounded-lg px-4 py-3 text-red-300 text-sm"
+          >
+            {error}{" "}
+            <Link href="/login" className="text-red-100 underline">
+              Log in
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -229,7 +280,7 @@ function ResultsView({ result }: { result: ScanResult }) {
   }, []);
 
   return (
-    <div className={`min-h-screen bg-[#0d1b2a] text-white transition-opacity duration-700 ${visible ? "opacity-100" : "opacity-0"}`}>
+    <div data-testid="scan-results" className={`min-h-screen bg-[#0d1b2a] text-white transition-opacity duration-700 ${visible ? "opacity-100" : "opacity-0"}`}>
       {/* Nav */}
       <nav className="border-b border-white/10">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -279,6 +330,9 @@ function ResultsView({ result }: { result: ScanResult }) {
               {formatDollar(result.fineMin)} – {formatDollar(result.fineMax)}
             </span>
           </div>
+          <p data-testid="scan-summary" className="text-white/60 text-sm mt-5 max-w-2xl mx-auto">
+            {result.summary}
+          </p>
         </div>
 
         {/* Locked violation cards */}
@@ -287,7 +341,20 @@ function ResultsView({ result }: { result: ScanResult }) {
             Violations Detected
           </h2>
           <div className="grid sm:grid-cols-3 gap-4">
-            {VIOLATION_CARDS.map((card, i) => (
+            {(result.flags.length
+              ? result.flags.map((flag) => ({
+                  icon: flag.severity === "red" ? "⚠️" : "🟡",
+                  title: flag.rule,
+                  description: flag.explanation,
+                  severity: flag.severity,
+                  severityColor: flag.severity === "red" ? "text-red-400" : "text-yellow-400",
+                  bgColor:
+                    flag.severity === "red"
+                      ? "bg-red-900/20 border-red-800/40"
+                      : "bg-yellow-900/20 border-yellow-800/40",
+                }))
+              : VIOLATION_CARDS
+            ).slice(0, 3).map((card, i) => (
               <div
                 key={i}
                 className={`relative rounded-xl border p-5 overflow-hidden ${card.bgColor}`}
@@ -417,7 +484,7 @@ function ResultsView({ result }: { result: ScanResult }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-export default function ScanPage() {
+function LegacyScanPage() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [brokerage, setBrokerage] = useState("");
   const [result, setResult] = useState<ScanResult | null>(null);
@@ -437,7 +504,7 @@ export default function ScanPage() {
   };
 
   if (phase === "scanning") {
-    return <ScanAnimation onComplete={handleScanComplete} />;
+    return <ScanAnimation brokerage={brokerage} onComplete={handleScanComplete} />;
   }
 
   if (phase === "results" && result) {
@@ -493,6 +560,7 @@ export default function ScanPage() {
             />
             <button
               onClick={handleScan}
+              data-testid="advertised-scan-button"
               disabled={!brokerage.trim()}
               className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white px-8 py-4 rounded-xl font-bold text-base transition shadow-lg shadow-blue-600/25 whitespace-nowrap"
             >
@@ -529,4 +597,9 @@ export default function ScanPage() {
       </footer>
     </div>
   );
+}
+
+void LegacyScanPage;
+export default function ScanPage() {
+  return <main className="min-h-screen bg-[#0d1b2a] text-white p-8"><div className="max-w-xl mx-auto"><h1 className="text-3xl font-bold">Scan your ad copy</h1><p className="my-4">Create a free account or sign in, then paste or dictate the ad you want reviewed. Saved results are available in your scan history. No ad-account connection or billing is required.</p><Link className="underline mr-6" href="/signup">Create free account</Link><Link className="underline" href="/dashboard/compliance">Sign in and scan</Link><p className="mt-6">Automated findings are suggestions for review, not legal approval.</p><Link className="underline" href="/examples">Explore 10 fictional competitor examples</Link></div></main>;
 }
