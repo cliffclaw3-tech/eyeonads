@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "EyeOnAds — AI-Powered Real Estate Ad Compliance",
   description:
-    "AI keeps an eye on your agents' ads. 24/7 compliance + performance monitoring so you don't have to.",
+    "Review sampled public advertising, inspect saved image evidence, and schedule checks. Findings require broker review.",
 };
 
 export default function RootLayout({

@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
       parsed = createRuleBasedScanResult(ad_copy, analysisSource);
     } else {
       try {
-        parsed = await reviewAdText(ad_copy, state);
+        parsed = await reviewAdText(ad_copy, state, image_base64 ? 'This input is accompanying user-supplied text. An attached image is assessed separately. Do not claim that statements in this copy were visible in the image, or that missing text is absent from the full image or linked disclosures.' : undefined);
       } catch {
         analysisSource = "rule_fallback";
         console.error("[/api/scan] AI unavailable; limited rule review used.");

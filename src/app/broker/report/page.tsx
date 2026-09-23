@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { OfficeSocialReport } from '@/components/OfficeSocialReport';
+import { OFFICE_SOCIAL_ID, type OfficeSocialRecord } from '@/lib/office-social-contract';
 import { SourceImageEvidence } from '@/components/SourceImageEvidence';
 import { discoveryReport, type ReportCandidate } from '@/lib/discovery-report';
 import { redirect } from 'next/navigation';
@@ -14,8 +16,9 @@ export default async function ReportPage() {
   if (!user) redirect('/login');
   const [setupResult,reviewsResult] = await Promise.all([
     db.from('eyeonads_brokerage_setups').select('*').eq('owner_id',user.id).maybeSingle(),
-    db.from('eyeonads_discovery_reviews').select('agent_id,status,searched_at,evidence').eq('owner_id',user.id),
+    db.from('eyeonads_discovery_reviews').select('agent_id,status,searched_at,evidence,error').eq('owner_id',user.id),
   ]);
+  const socialRecord=(reviewsResult.data?.find(review=>review.agent_id===OFFICE_SOCIAL_ID)||null) as OfficeSocialRecord|null;
   const setup=setupResult.data;
   const savedAgents=(setup?.agents || []) as {id:string;name:string}[];
   const agents=savedAgents.filter(agent=>setup?.discovery_agent_ids==null||setup.discovery_agent_ids.includes(agent.id));
@@ -47,6 +50,7 @@ export default async function ReportPage() {
           <details className="mt-3 text-sm"><summary className="min-h-11 cursor-pointer py-2">Scope and limits</summary><p>{savedAgents.length} agents remain in the full saved roster. {missing>0 ? `${missing} are missing compared with your full estimate of ${setup?.expected_agents}. ` : ''}Knoxville is intentionally outside this office pilot and requires a separate MLS/Spark connection.</p><p className="mt-2">Images, layout, private posts, unindexed ads, and one-click social disclosures may remain unchecked. Read the dates below: these are latest saved results, not a guarantee of current advertising.</p></details>
         </section>
         <ReportControls />
+        <OfficeSocialReport record={socialRecord} />
         <section id="possible-issues" className="scroll-mt-4"><h2 className="text-2xl font-semibold">Possible issues to review ({flagged.length} agents)</h2>
           {!flagged.length && <p className="mt-3">No possible issues are recorded in the completed text assessments. Check the coverage gaps below before drawing any conclusion.</p>}
           {flagged.map(row=><article key={row.agent.id} className="mt-4 space-y-3 rounded-xl border border-amber-400/50 p-5 print:break-inside-avoid"><h3 className="text-xl font-semibold">{row.agent.name}</h3><p className="text-sm">Checked {new Date(row.saved!.searched_at).toLocaleString('en-US',{timeZone:'America/New_York'})} Eastern</p>{row.issues.map((ad,index)=><div key={index} className="space-y-2"><p className="font-semibold">{ad.review!.result.toUpperCase()} · {ad.title}</p>{validSourceURL(ad.url)&&<a href={ad.url} target="_blank" rel="noopener noreferrer" className="break-all underline">Open original source ↗</a>}<p>{ad.review!.summary}</p><ul className="list-disc space-y-2 pl-5">{ad.review!.flags.map((flag,i)=><li key={i}><strong>{flag.rule}:</strong> {flag.explanation} <span className="block">Next action: {flag.recommendation}</span></li>)}</ul><details><summary className="cursor-pointer underline">Text and context assessed</summary><p className="mt-2 whitespace-pre-wrap break-words">{ad.ad_text}</p><p className="mt-2">{ad.context}</p></details></div>)}</article>)}
