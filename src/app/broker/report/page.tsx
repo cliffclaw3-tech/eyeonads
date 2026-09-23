@@ -1,12 +1,12 @@
 import Link from 'next/link';
+import { discoveryReport, type ReportCandidate } from '@/lib/discovery-report';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { PrintReport } from '@/components/PrintReport';
 import { ReportControls } from '@/components/ReportControls';
-import { validSourceURL, type DiscoveredAd } from '@/lib/discovered-ad-contract';
-import type { AdReview } from '@/lib/ad-review';
+import { validSourceURL } from '@/lib/discovered-ad-contract';
 
-type Evidence = { candidates: (DiscoveredAd & {review: AdReview | null;review_status:string})[]; coverage_gaps: string[]; identity_note: string };
+type Evidence = { candidates: ReportCandidate[]; coverage_gaps: string[]; identity_note: string };
 export default async function ReportPage() {
   const db = await createClient();
   const {data:{user}} = await db.auth.getUser();
@@ -25,7 +25,8 @@ export default async function ReportPage() {
     const candidates=current ? evidence?.candidates || [] : [];
     const reviewed=candidates.filter(ad=>ad.review_status==='reviewed' && ad.review);
     const issues=reviewed.filter(ad=>ad.review!.result!=='green');
-    return {agent,saved,evidence,current,candidates,reviewed,issues};
+    const presentation=discoveryReport(candidates);
+    return {agent,saved,evidence: evidence?{...evidence,coverage_gaps:presentation.coverage_gaps}:null,current,candidates,reviewed,issues};
   });
   const checked=rows.filter(row=>row.reviewed.length>0).length;
   const flagged=rows.filter(row=>row.issues.length>0);
