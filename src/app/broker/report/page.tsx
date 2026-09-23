@@ -35,6 +35,8 @@ export default async function ReportPage() {
   const checked=rows.filter(row=>row.reviewed.length>0).length;
   const flagged=rows.filter(row=>row.issues.length>0);
   const gaps=rows.filter(row=>!row.current || !row.reviewed.length || row.candidates.some(ad=>ad.review_status!=='reviewed'));
+  const socialAds=socialRecord?.evidence?.ads||[];
+  const socialImageCount=socialAds.filter(ad=>ad.image_review.observations).length;
   const imageCount=rows.flatMap(row=>row.candidates).filter(ad=>ad.image_review?.observations).length;
   const missing=setup?.discovery_agent_ids==null?Math.max(0,(setup?.expected_agents||0)-agents.length):0;
   return <main className="min-h-screen bg-[#0d1b2a] px-4 py-8 text-white sm:px-8 print:bg-white print:text-black">
@@ -45,8 +47,9 @@ export default async function ReportPage() {
         <section className="rounded-xl border border-white/25 p-5 print:border-gray-400">
           <h2 className="text-xl font-semibold">At a glance</h2>
           <p className="mt-3">{agents.length} agents in report scope · {checked} with ad text assessed.</p>
-          <div className="mt-3 flex flex-wrap gap-3 print:hidden"><a href="#possible-issues" className="inline-flex min-h-11 items-center rounded-lg bg-blue-600 px-4 py-2 font-semibold">Review possible issues ({flagged.length})</a><a href="#coverage-gaps" className="inline-flex min-h-11 items-center underline">See coverage gaps ({gaps.length})</a></div>
-          <p className="mt-3 text-sm">{imageCount} source images have saved visibility observations. This screens sampled public ad text and available source images. Findings need human review and do not certify compliance.</p>
+          <p className="mt-2">Latest saved public social sample: {socialAds.length} ads captured · {socialImageCount} images with observations · {socialAds.length-socialImageCount} images unchecked.</p>
+          <div className="mt-3 flex flex-wrap gap-3 print:hidden"><a href="#office-social-heading" className="inline-flex min-h-11 items-center rounded-lg bg-blue-600 px-4 py-2 font-semibold">{socialAds.length?`Review public social ads (${socialAds.length})`:"Check public social ads"}</a><a href="#possible-issues" className="inline-flex min-h-11 items-center rounded-lg border border-white/40 px-4 py-2 font-semibold">Review agent issues ({flagged.length})</a><a href="#coverage-gaps" className="inline-flex min-h-11 items-center underline">See coverage gaps ({gaps.length})</a></div>
+          <p className="mt-3 text-sm">{imageCount} images from agent search sources have saved visibility observations, separate from the public social sample above. This screens sampled public ad text and available source images. Findings need human review and do not certify compliance.</p>
           <details className="mt-3 text-sm"><summary className="min-h-11 cursor-pointer py-2">Scope and limits</summary><p>{savedAgents.length} agents remain in the full saved roster. {missing>0 ? `${missing} are missing compared with your full estimate of ${setup?.expected_agents}. ` : ''}Knoxville is intentionally outside this office pilot and requires a separate MLS/Spark connection.</p><p className="mt-2">Images, layout, private posts, unindexed ads, and one-click social disclosures may remain unchecked. Read the dates below: these are latest saved results, not a guarantee of current advertising.</p></details>
         </section>
         <ReportControls />

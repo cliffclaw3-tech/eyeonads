@@ -37,9 +37,9 @@ async function assessCard(card:MetaAdCard,setup:Setup):Promise<OfficeSocialAd>{
       try{
         const {data_url,...capture}=await readPublicImage({url:media.url,source_url:card.source_url,alt:media.alt,role:'page_image'});
         const reviewed=await reviewAdImage(data_url,`Actual media bound to Meta Ad Library ID ${card.library_id}, publisher ${card.advertiser?.name||'unverified'}. Media scope: ${card.media_scope}. ${media.kind==='video_poster'?'This is only a video poster. No video frames have been inspected.':''} ${card.attribution_note}`);
-        const partial=reviewed.observations&&card.media_scope!=='still_creative';
+        const partial=!!reviewed.observations;
         const retained=data_url.length<=700000;
-        return {image_review:{...reviewed,...(partial?{status:'partial' as const,notes:`${reviewed.notes} Only one ${media.kind==='video_poster'?'video poster':'asset'} was checked; the complete video or other creative assets remain unchecked.`}:{}),capture},...(retained?{image_data_url:data_url}:{})};
+        return {image_review:{...reviewed,...(partial?{status:'partial' as const,notes:`${reviewed.notes} Only one ${media.kind==='video_poster'?'video poster':'media asset'} was checked. The surrounding Meta post, publisher profile, linked disclosures, complete video and other creative assets are not part of this image review.`}:{}),capture},...(retained?{image_data_url:data_url}:{})};
       }catch{return {image_review:{status:'unavailable' as const,observations:null,notes:'The ad media could not be retrieved safely. No missing disclosure was established.'}};}
     })(),
   ]);

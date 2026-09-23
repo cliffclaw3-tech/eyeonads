@@ -20,10 +20,11 @@ const record={status:'complete',searched_at:'2026-09-23T19:20:00Z',error:null,ev
 const render=value=>renderToStaticMarkup(React.createElement(OfficeSocialReport,{record:value}));
 test('rendered office ads preserve identity, saved media and honest partial coverage',()=>{
  const html=render(record);
- for(const text of ['TEST Legacy Realty','123456789','Sep 12, 2026','affiliation unverified','TEST Current Realty','Video poster only','Video frames, audio, and motion were not reviewed','not additional agents','same schedule','does not automatically establish a violation','Saved image reviewed'])assert.ok(html.includes(text),text);
+ for(const text of ['TEST Legacy Realty','123456789','Sep 12, 2026','affiliation unverified','TEST Current Realty','Video poster only','Video frames, audio, and motion were not reviewed','not additional agents','same schedule','does not automatically establish a violation','Partial ad coverage — saved image reviewed'])assert.ok(html.includes(text),text);
  assert.ok(html.includes(image));assert.ok(html.includes('https://www.facebook.com/ads/library/?id=123456789'));
  const unavailable=structuredClone(record);unavailable.evidence.ads[0].image_review={status:'unavailable',observations:null,notes:'Image analysis unavailable.'};
- const missing=render(unavailable);assert.ok(missing.includes(image));assert.ok(missing.includes('Image not reviewed'));assert.ok(!missing.includes('Saved image reviewed'));assert.ok(!missing.includes('EHO logo or words:'));
+ assert.ok(!html.includes('Image type: complete ad'));assert.ok(html.includes('ad creative image; surrounding post not included'));
+ const missing=render(unavailable);assert.ok(missing.includes(image));assert.ok(missing.includes('Image not reviewed'));assert.ok(!missing.includes('Partial ad coverage — saved image reviewed'));assert.ok(!missing.includes('EHO logo or words:'));
  unavailable.evidence.ads[0].image_data_url='javascript:alert(1)';unavailable.evidence.ads[0].source_url='javascript:alert(1)';assert.ok(!render(unavailable).includes('javascript:'));
 });
 test('empty, failed and running records explain saved evidence and recovery',()=>{
