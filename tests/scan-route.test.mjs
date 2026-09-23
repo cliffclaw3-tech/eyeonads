@@ -11,6 +11,7 @@ function route({user={id:'test-user'}, failSave=false, sink=false}={}) {
   const require=(name)=> {
     if(name==='next/server') return {NextResponse:{json:(body,options={})=>({body,status:options.status??200})}};
     if(name==='@/lib/supabase/server') return {createClient:async()=>supabase};
+    if(name==='@/lib/ad-review') return {reviewAdText:async()=>{providerCalls++;throw Error('Provider calls forbidden');}};
     if(name==='@/lib/scan-contract') return {validScanInput,validAnalysis};
     if(name==='openai'||name==='@anthropic-ai/sdk') return class {constructor(){providerCalls++;throw Error('Provider calls forbidden');}};
     throw Error(`Unexpected import ${name}`);

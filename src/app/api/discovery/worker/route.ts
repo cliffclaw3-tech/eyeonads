@@ -21,6 +21,8 @@ export async function POST(request: Request) {
   const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
+  const due = await db.rpc('eyeonads_enqueue_due_reports');
+  if (due.error) return NextResponse.json({ error: 'Scheduled checks could not be prepared.' }, { status: 503 });
   const { data, error } = await db.rpc('eyeonads_claim_discovery_job_item');
   if (error) return NextResponse.json({ error: 'Queue unavailable.' }, { status: 503 });
   const item = data?.[0];
@@ -28,10 +30,10 @@ export async function POST(request: Request) {
   let success = false;
   try {
     // Recover an interrupted worker after the review saved, without buying another search.
-    const prior = await db.from('eyeonads_discovery_reviews').select('status')
+    const prior = await db.from('eyeonads_discovery_reviews').select('status,searched_at')
       .eq('owner_id', item.owner_id).eq('agent_id', item.agent_id).maybeSingle();
     if (prior.error) throw prior.error;
-    if (prior.data?.status !== 'complete') await runDiscovery(db, item.owner_id, item.setup, item.agent);
+    if (prior.data?.status !== 'complete' || !prior.data.searched_at || new Date(prior.data.searched_at) < new Date(item.created_at)) await runDiscovery(db, item.owner_id, item.setup, item.agent);
     success = true;
   } catch { /* Store a safe message in the finish RPC, never provider errors or secrets. */ }
   const finished = await db.rpc('eyeonads_finish_discovery_job_item', {

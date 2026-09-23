@@ -18,7 +18,9 @@ async function handle(request: Request, action: 'read' | 'start' | 'control') {
       const { data: setup, error } = await db.from('eyeonads_brokerage_setups').select('agents').eq('owner_id', user.id).maybeSingle();
       if (error) throw error;
       if (!setup?.agents?.length) return reply({ error: 'Save agents in brokerage setup first.' }, 400);
-      const started = await db.rpc('eyeonads_start_discovery_job');
+      const body = await request.json().catch(() => null);
+      const started = await db.rpc(body?.fresh === true ? 'eyeonads_start_fresh_report' : 'eyeonads_start_discovery_job');
+      if (started.error?.message?.includes('already in progress')) return reply({ error: 'A batch is already in progress. Open search progress to resume or finish it before starting a fresh report.' }, 409);
       if (started.error) throw started.error;
     }
     if (action === 'control') {

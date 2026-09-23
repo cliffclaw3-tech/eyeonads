@@ -18,7 +18,10 @@ export async function POST(request: NextRequest) {
   if (error) return NextResponse.json({ error: "Your saved brokerage could not be checked. Retry without changing your roster." }, { status: 503 });
   if (!setup) return NextResponse.json({ error: "Save your brokerage setup before importing from Spark." }, { status: 400 });
   try {
-    const preview = await fetchSparkRoster(setup.name);
+    const body = await request.json().catch(() => ({}));
+    const officeScope = body?.office_scope ?? "jonesborough";
+    if (!["jonesborough", "current-feed"].includes(officeScope)) return NextResponse.json({ error: "Choose Jonesborough or current-feed offices." }, { status: 400 });
+    const preview = await fetchSparkRoster(setup.name, officeScope);
     return NextResponse.json(preview, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Spark import could not be completed. Your saved roster is unchanged." }, { status: 503 });

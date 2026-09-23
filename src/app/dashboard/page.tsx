@@ -87,6 +87,7 @@ export default async function DashboardPage() {
               { href: "/dashboard/compliance", label: "Compliance" },
               { href: "/dashboard/connect", label: "Ad Accounts" },
               { href: "/broker", label: "Brokerage setup" },
+              { href: "/broker/report", label: "Broker report" },
             ].map((link) => (
               <Link
                 key={link.href}
@@ -116,16 +117,17 @@ export default async function DashboardPage() {
         <div className="bg-white/5 border border-white/10 rounded-xl p-6">
           <div className="flex flex-wrap gap-3 items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-white">
-              Ad-account connections
+              Your broker report
             </h2>
             <Link
-              href="/dashboard/connect"
+              href="/broker/report"
               className="text-blue-400 text-sm hover:underline"
             >
-              Beta status →
+              Open report →
             </Link>
           </div>
-          <p className="text-white/60 text-sm">Meta and Google connections are unavailable during beta while encrypted token storage is not in place. Scan pasted or dictated ad copy instead.</p>
+          <p className="text-white/70 text-sm">Review possible issues found in public marketing, see which agents and ads were checked, and identify coverage gaps. Run a report on demand or choose daily or weekly checks.</p>
+          <Link href="/broker/report" className="mt-4 inline-flex min-h-11 items-center rounded-lg bg-blue-600 px-5 py-3 font-semibold hover:bg-blue-500">Open broker report</Link>
         </div>
 
         {/* Compliance Status */}
@@ -207,7 +209,7 @@ export default async function DashboardPage() {
             Beta support
           </h2>
           <p className="text-white/50 text-sm mb-4">
-            Automated reports and alerts are unavailable in this beta candidate.
+            Public-web report schedules are managed in your broker report. Email alerts and direct Meta/Google account connections are not enabled.
           </p>
           <div className="bg-white/5 rounded-lg p-4 border border-white/10 text-center">
             <p className="text-white/30 text-sm">

@@ -6,7 +6,7 @@ export type SparkRosterPreview = {
 type Row = Record<string, unknown>;
 
 /** Read-only, bounded import from the configured accessible feed. Never returns credentials or raw MLS records. */
-export async function fetchSparkRoster(brokerageName: string): Promise<SparkRosterPreview> {
+export async function fetchSparkRoster(brokerageName: string, officeScope: "jonesborough" | "current-feed" = "jonesborough"): Promise<SparkRosterPreview> {
   const endpoint = process.env.SPARK_API_ENDPOINT;
   const token = process.env.SPARK_API_TOKEN;
   if (!endpoint || !token) throw new Error("Spark roster import is not configured. Your existing roster has not changed.");
@@ -60,7 +60,9 @@ export async function fetchSparkRoster(brokerageName: string): Promise<SparkRost
   const officeRows = await collect("Office", { "$top": "1000", "$select": "OfficeKey,OfficeName,OfficeCity,OfficeStatus,Visible" });
   const matching = officeRows.filter((office) => {
     const name = normalize(String(office.OfficeName || ""));
-    return (name === brokerage || name.startsWith(`${brokerage} `)) && office.OfficeStatus === "Active" && office.Visible === true;
+    return (name === brokerage || name.startsWith(`${brokerage} `)) && office.OfficeStatus === "Active" && office.Visible === true
+      && !/knoxville/i.test(`${office.OfficeName} ${office.OfficeCity}`)
+      && (officeScope === "current-feed" || /jonesborough/i.test(`${office.OfficeName} ${office.OfficeCity}`));
   });
   for (const office of matching) {
     const key = String(office.OfficeKey || "");
@@ -82,8 +84,8 @@ export async function fetchSparkRoster(brokerageName: string): Promise<SparkRost
     officeCounts.push({ name: String(office.OfficeName), count });
   }
   if (!matching.length) notes.add("No matching active, visible offices were found in this accessible feed.");
-  const missingOffices = matching.some((office) => /knoxville/i.test(`${office.OfficeName} ${office.OfficeCity}`)) ? [] : ["Knoxville"];
-  if (missingOffices.length) notes.add("Knoxville is not present among matching offices in this accessible feed; add or import its roster before company-wide coverage can be confirmed.");
-  notes.add("Only active, visible members of matching offices in this accessible Spark feed are included. Other MLS feeds, offices, inactive or hidden members may be absent; this is not confirmation of the entire company roster.");
+  const missingOffices = officeScope === "jonesborough" && !matching.length ? ["Jonesborough"] : [];
+  notes.add(officeScope === "jonesborough" ? "Jonesborough office pilot only. Other offices are outside this import scope." : "Current accessible feed offices only.");
+  notes.add("Knoxville is intentionally excluded from this pilot; it requires a separate MLS/Spark connection. Only active, visible members are included. Roster membership does not establish advertising coverage.");
   return { agents: [...agents.values()], offices: officeCounts, total: agents.size, source: "Spark accessible feed", complete_feed: complete, warning: [...notes].join(" "), missing_offices: missingOffices };
 }

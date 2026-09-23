@@ -154,6 +154,7 @@ export function DiscoveryDashboard() {
   return <main className="min-h-screen bg-[#0d1b2a] px-4 py-8 text-white sm:px-8">
     <div className="mx-auto max-w-4xl space-y-6">
       <nav className="flex flex-wrap gap-4 text-sm text-white/75"><Link href="/broker" className="underline">← Brokerage setup</Link><Link href="/dashboard/compliance" className="underline">Scan ad copy manually</Link><Link href="/dashboard" className="underline">Dashboard</Link></nav>
+      <Link href="/broker/report" className="inline-flex min-h-11 items-center rounded-lg bg-blue-600 px-4 py-2 font-semibold">Review broker findings and report</Link>
       <header><h1 className="text-3xl font-bold">Discover public marketing</h1><p className="mt-2 text-white/75">Search the public web for agents in {data?.brokerage?.name || "your brokerage"}, then review saved reports and source links.</p></header>
       <section className="rounded-xl border border-amber-400/40 bg-amber-900/15 p-5"><h2 className="font-semibold">Public search is incomplete</h2><p className="mt-2 text-white/80">These searches do not connect advertising accounts or continuously monitor ads. Results may miss ads or match another person with the same name. All AI findings are provisional: verify the agent, brokerage, date, and original source.</p><p className="mt-2 text-white/80">“No verified ads found” in a completed report means the search did not establish a match. It does not mean the agent has no ads or that their advertising is compliant. An unsearched agent has no search assessment yet.</p></section>
       {loading && <p role="status">Loading saved progress…</p>}
@@ -163,8 +164,8 @@ export function DiscoveryDashboard() {
         <section className="rounded-xl border border-white/20 p-5">
           <h2 className="text-xl font-semibold">{searched} of {agents.length} roster agents successfully searched</h2>
           <p className="mt-2 text-white/75">{remaining} not searched · {failed} failed · {unfinished} unfinished or in progress</p>
-          <p className="mt-2 text-white/75">0 automatically monitored. Search completion is not a compliance clearance.</p>
-          {/greater impact realty/i.test(data.brokerage?.name || "") && <p className="mt-3 rounded-lg border border-amber-400/40 p-3 font-medium text-amber-200">Knoxville is missing from the accessible Spark office feed. Add or import its roster in Brokerage setup before company-wide coverage can be confirmed. A completed batch only searches agents already listed here.</p>}
+          <p className="mt-2 text-white/75">Open the broker report for scheduled public checks and actual ad-text assessments. Search completion is not a compliance clearance.</p>
+          {/greater impact realty/i.test(data.brokerage?.name || "") && <p className="mt-3 rounded-lg border border-amber-400/40 p-3 font-medium text-amber-200">Knoxville is outside this pilot because it requires a separate MLS/Spark connection. This batch searches only your saved roster; confirm the intended office and agent names in Brokerage setup.</p>}
           {missing > 0 && <p className="mt-3 text-amber-200">{missing} of your {data.brokerage?.expected_agents} expected agents are missing from the roster and cannot be searched here. <Link href="/broker" className="underline">Add missing agents</Link>.</p>}
           {!data.brokerage || agents.length === 0 ? <p className="mt-4">Start by <Link href="/broker" className="underline text-blue-300">saving your brokerage and agent roster</Link>.</p> : <>
             <div className="mt-4 flex flex-wrap gap-3">
