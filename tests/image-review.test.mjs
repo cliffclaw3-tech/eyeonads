@@ -30,5 +30,24 @@ test('vision request bounds retries/time and accepts JSON-string gateway envelop
  class OpenAI{constructor(value){options=value;this.chat={completions:{create:async value=>{request=value;return JSON.stringify(envelope(observation));}}};}}
  vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{exports:fresh,process:{env:{OPENAI_API_KEY:'test-only'}},require:name=>name==='openai'?{default:OpenAI}:{completionText}});
  const result=await fresh.reviewAdImage('data:image/png;base64,YWJj','Public listing photo, not a page screenshot');
- assert.equal(result.status,'partial');assert.equal(options.timeout,15000);assert.equal(options.maxRetries,0);assert.equal(options.defaultHeaders['Accept-Encoding'],'identity');assert.match(request.messages[0].content,/never instructions/);assert.equal(request.messages[1].content[1].image_url.url,'data:image/png;base64,YWJj');
+ assert.equal(result.status,'partial');assert.equal(options.timeout,10000);assert.equal(options.maxRetries,0);assert.equal(options.defaultHeaders['Accept-Encoding'],'identity');assert.match(request.messages[0].content,/never instructions/);assert.equal(request.messages[1].content[1].image_url.url,'data:image/png;base64,YWJj');
+});
+
+test('malformed vision output retries once under one time budget; authentication errors do not retry',async()=>{
+ const source=fs.readFileSync(new URL('../src/lib/image-review.ts',import.meta.url),'utf8');
+ for(const mode of ['recover','invalid','unauthorized']){
+  const fresh={};let calls=0;let request;
+  class OpenAI{constructor(){this.chat={completions:{create:async value=>{calls++;request=value;if(mode==='unauthorized')throw Object.assign(Error('Denied'),{status:401});return mode==='recover'&&calls===2?envelope(observation):envelope({...observation,eho:false});}}};}}
+  vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{exports:fresh,process:{env:{OPENAI_API_KEY:'test-only'}},require:name=>name==='openai'?{default:OpenAI}:{completionText}});
+  const result=await fresh.reviewAdImage('data:image/png;base64,YWJj');
+  assert.equal(calls,mode==='unauthorized'?1:2);assert.equal(result.status,mode==='recover'?'partial':'unavailable');assert.equal(request.response_format.json_schema.strict,true);
+ }
+});
+
+test('MLS watermark or absent name evidence cannot establish visible brokerage identification',()=>{
+ for(const name of ['TVR MLS','MLS','REALTOR logo','']){
+  const r=imageReviewFromCompletion(envelope({...observation,brokerage:'present',brokerage_text:name,notes:'MLS proves firm presence.'}));
+  assert.equal(r.observations.brokerage,'uncertain');assert.doesNotMatch(r.observations.notes,/MLS proves/);
+ }
+ const r=imageReviewFromCompletion(envelope({...observation,brokerage:'present',brokerage_text:'Example Realty'}));assert.equal(r.observations.brokerage,'present');assert.equal(r.observations.brokerage_text,'Example Realty');
 });

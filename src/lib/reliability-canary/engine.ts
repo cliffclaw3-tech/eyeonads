@@ -17,6 +17,7 @@ export type RetrievedCanary = {
   status: 'retrieved' | 'blocked' | 'not_found' | 'unpublished' | 'error';
   canonicalUrl?: string;
   targetId?: string;
+  postBound?: boolean;
   public: boolean;
   text?: string;
   capturedAt?: string;
@@ -38,7 +39,7 @@ export type EngineDependencies = {
 export type MonthlyReport = {
   version: 1; ownerId: string; period: string; completedAt: string;
   outcome: StageStatus; discovery: Stage; retrieval: Stage; assessment: Stage;
-  controls: { id: string; kind: 'known_defect' | 'clean'; stage: Stage }[];
+  controls: { id: string; kind: 'known_defect' | 'clean'; text?: string; stage: Stage }[];
   canaryAssessment: Stage;
   metrics: {
     configuredTargets: number; verifiedPublicTargets: number; knownPublicTargets: number; targetsFoundBlind: number; recall: number | null;
@@ -135,7 +136,7 @@ export async function runMonthlyCanary(args: { config: CanaryConfig; period: str
     try {
       // This deliberate direct retrieval is diagnostic. It never counts as discovery.
       const captured = await cached('canary-retrieval', { url: config.publicCanaryUrl, target: config.expectedTargetId, label: config.requiredLabel }, () => bounded(20_000, signal => deps.retrieve(config.publicCanaryUrl!, { signal })), value => value?.status === 'retrieved');
-      verifiedPublic = captured.status === 'retrieved' && captured.public && captured.targetId === config.expectedTargetId && publicPostIdentity(captured.canonicalUrl || '') === targetIdentity && !!captured.text?.includes(config.requiredLabel) && !!captured.contentHash && !!captured.capturedAt && Number.isFinite(Date.parse(captured.capturedAt)) && Date.parse(captured.capturedAt) >= Date.parse(`${period}-01T00:00:00Z`) && Date.parse(captured.capturedAt) <= Date.parse(args.now) + 300_000;
+      verifiedPublic = captured.status === 'retrieved' && captured.public && captured.postBound === true && captured.targetId === config.expectedTargetId && publicPostIdentity(captured.canonicalUrl || '') === targetIdentity && !!captured.text?.includes(config.requiredLabel) && !!captured.contentHash && !!captured.capturedAt && Number.isFinite(Date.parse(captured.capturedAt)) && Date.parse(captured.capturedAt) >= Date.parse(`${period}-01T00:00:00Z`) && Date.parse(captured.capturedAt) <= Date.parse(args.now) + 300_000;
       retrieval = stage(verifiedPublic ? 'pass' : captured.status === 'error' ? 'error' : 'blocked', verifiedPublic ? 'The labeled public test was retrieved from the verified target.' : 'Test unavailable, unpublished, unlabeled, or identity/evidence verification failed; no pass.', { ...captured });
       if (verifiedPublic) {
         const input = { text: captured.text!, state: queryInputs.state, imageEvidence: captured.imageEvidence || [] };
@@ -152,7 +153,7 @@ export async function runMonthlyCanary(args: { config: CanaryConfig; period: str
     const input = { text: control.text, state: 'TN', imageEvidence: [] };
     try { result = exactFindings(await cached(`control-${control.id}`, input, () => bounded(22_000, signal => deps.assess(input, { signal })), value => value?.complete === true), control.expected); }
     catch { result = stage('error', 'Calibration control assessment failed.'); }
-    return { id: control.id, kind: control.kind, stage: result };
+    return { id: control.id, kind: control.kind, text: control.text, stage: result };
   }));
   const assessment = stage(aggregate([canaryAssessment, ...controls.map(c => c.stage)]), 'Public test and separate rotating defect/clean controls are scored independently.');
   const foundBlind = verifiedPublic && discovery.status === 'pass' ? 1 : 0;

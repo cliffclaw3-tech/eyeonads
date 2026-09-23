@@ -56,11 +56,13 @@ export function extractImageCandidates(html:string, sourceURL:string):PublicImag
   });
   return candidates;
 }
-export type SourceMetadata={canonical_url?:string;author_urls:string[];publisher_urls:string[];evidence:string[];canonical_conflict:boolean};
+export type BoundPublicPost={url:string;text:string;author_urls:string[]};
+export type SourceMetadata={bound_post?:BoundPublicPost;bound_post_conflict:boolean;canonical_url?:string;author_urls:string[];publisher_urls:string[];evidence:string[];canonical_conflict:boolean};
 /** These are declarations in this response, NOT platform-verified ownership. */
 export function extractSourceMetadata(html:string,sourceURL:string):SourceMetadata {
   const $=load(html),source=publicURL(sourceURL).href;
-  const result:SourceMetadata={author_urls:[],publisher_urls:[],evidence:[],canonical_conflict:false};
+  const result:SourceMetadata={author_urls:[],publisher_urls:[],evidence:[],canonical_conflict:false,bound_post_conflict:false};
+  const postEntities:Record<string,unknown>[]=[];
   const canonicals:string[]=[];
   function add(raw:unknown,to:string[],label:string){
     if(typeof raw!=='string'||!raw.trim()||raw.length>3000||to.length>=8)return;
@@ -77,6 +79,7 @@ export function extractSourceMetadata(html:string,sourceURL:string):SourceMetada
       for(const entity of entities){
         if(!entity||typeof entity!=='object')continue;
         const kinds=Array.isArray(entity['@type'])?entity['@type']:[entity['@type']];
+        if(kinds.includes('SocialMediaPosting'))postEntities.push(entity);
         if(!kinds.some((kind:unknown)=>typeof kind==='string'&&/^(?:Article|NewsArticle|BlogPosting|SocialMediaPosting|WebPage)$/.test(kind)))continue;
         for(const field of ['author','publisher'] as const){
           const values=Array.isArray(entity[field])?entity[field]:[entity[field]];
@@ -87,7 +90,61 @@ export function extractSourceMetadata(html:string,sourceURL:string):SourceMetada
   });
   if(canonicals.length===1)result.canonical_url=canonicals[0];
   result.canonical_conflict=canonicals.length>1;
+  if(result.canonical_url&&!result.canonical_conflict){
+    const binding=bindExactFacebookPost(postEntities,result.canonical_url,source);
+    result.bound_post=binding.post;result.bound_post_conflict=binding.conflict;
+  }
   return result;
+}
+/** Strict identity for exact post binding; the social adapter independently rechecks it. */
+function facebookPostKey(raw:string):string|null {
+  try{
+    const u=new URL(raw),host=u.hostname.toLowerCase().replace(/^(www|m|mbasic)\./,'');
+    if(u.protocol!=='https:'||host!=='facebook.com'||u.username||u.password||u.port)return null;
+    if(u.searchParams.has('comment_id')||u.searchParams.has('reply_comment_id'))return null;
+    const story=u.searchParams.get('story_fbid');if(story)return 'post:'+story;
+    const path=u.pathname.replace(/\/+$/,'');
+    const post=path.match(/\/(?:posts|videos)\/([^/]+)$/)?.[1];if(post)return 'post:'+post;
+    if((path==='/photo.php'||path==='/photo')&&u.searchParams.get('fbid'))return 'photo:'+u.searchParams.get('fbid');
+    return null;
+  }catch{return null;}
+}
+function bindExactFacebookPost(entities:Record<string,unknown>[],canonical:string,fetched:string):{post?:BoundPublicPost;conflict:boolean} {
+  const key=facebookPostKey(canonical);
+  if(!key||facebookPostKey(fetched)!==key)return {conflict:false};
+  const matches:BoundPublicPost[]=[];
+  let conflict=false;
+  for(const entity of entities){
+    // An entity's own explicit absolute URL is required. A mainEntityOfPage,
+    // graph parent, page-level author or fragment-only @id is not post identity.
+    const declared=[entity.url,entity['@id']].filter((value):value is string=>typeof value==='string'&&value.length>0);
+    if(!declared.some(value=>facebookPostKey(value)===key))continue;
+    if(declared.some(value=>{try{const u=new URL(value);return !!u.hash||facebookPostKey(value)!==key;}catch{return true;}})){conflict=true;continue;}
+    const kinds=Array.isArray(entity['@type'])?entity['@type']:[entity['@type']];
+    if(kinds.includes('Comment')){conflict=true;continue;}
+    const texts=[entity.articleBody,entity.text].filter((value):value is string=>typeof value==='string'&&value.trim().length>0);
+    if(!texts.length||texts.some(value=>value.length>10000)||new Set(texts.map(value=>value.replace(/\s+/g,' ').trim())).size!==1){conflict=true;continue;}
+    const authors=Array.isArray(entity.author)?entity.author:[entity.author];
+    const urls:string[]=[];let invalid=authors.length<1||authors.length>8;
+    for(const author of authors.slice(0,8)){
+      const raw=typeof author==='string'?author:author&&typeof author==='object'?(author as Record<string,unknown>).url??(author as Record<string,unknown>)['@id']:undefined;
+      try{
+        if(typeof raw!=='string'||raw.length>3000)throw Error('Missing direct author URL');
+        const u=publicURL(raw),host=u.hostname.toLowerCase().replace(/^(www|m|mbasic)\./,'');
+        if(u.protocol!=='https:'||host!=='facebook.com'||u.hash)throw Error('Unverified author');
+        if(!urls.includes(u.href))urls.push(u.href);
+      }catch{invalid=true;}
+    }
+    if(invalid||urls.length!==1){conflict=true;continue;}
+    matches.push({url:canonical,text:texts[0].trim(),author_urls:urls});
+  }
+  // Duplicate declarations may agree; conflicting exact-post bodies/authors
+  // are ambiguous and cannot be cherry-picked into a passing verification.
+  if(matches.length>1){
+    const first=matches[0];
+    if(matches.some(post=>post.text.replace(/\s+/g,' ')!==first.text.replace(/\s+/g,' ')||post.author_urls[0]!==first.author_urls[0]))conflict=true;
+  }
+  return conflict?{conflict:true}:{post:matches[0],conflict:false};
 }
 export type RetrievalFailureCause = 'unauthorized'|'forbidden'|'rate_limited'|'not_found'|'server_error'|'http_error'|'timeout'|'network'|'challenge'|'oversize'|'unsupported_type'|'empty_content'|'unsafe_url'|'redirect_limit'|'deadline';
 export class PublicPageError extends Error {

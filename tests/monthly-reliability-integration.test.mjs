@@ -37,7 +37,7 @@ test('monthly retrieval needs same-post canonical and one explicit author identi
     const r = await adapters({ page: { ...base, source_metadata: metadata } }).createCanaryDependencies().retrieve(url);
     assert.equal(r.targetId, undefined);
   }
-  const r = await adapters({ page: { ...base, source_metadata: { canonical_url: url, author_urls: ['https://www.facebook.com/broker'] } } }).createCanaryDependencies().retrieve(url);
+  const r = await adapters({ page: { ...base, source_metadata: { canonical_url: url, author_urls: ['https://www.facebook.com/broker'], bound_post: {url,text:base.text,author_urls:['https://www.facebook.com/broker']} } } }).createCanaryDependencies().retrieve(url);
   assert.equal(r.targetId, 'facebook:publisher:broker'); assert.match(r.reason, /do not prove account ownership/);
 });
 test('monthly forbidden source is blocked without inferring target or publication', async () => {
@@ -163,7 +163,7 @@ test('monthly UI shows incomplete public setup and accepted-not-delivered mail s
   let hook = 0;
   const status = { config: { enabled: true, next_run_at: '2026-10-01T00:00:00Z', public_canary_url: null, target_verified_at: null }, runs: [{ id: 'run', period: '2026-09', status: 'complete', report }], deliveries: [{ run_id: 'run', status: 'accepted', recipient: 'broker@example.org' }] };
   const react = require('react');
-  const m = moduleAt('components/MonthlyReliability.tsx', { react: { ...react, useState: initial => [hook++ === 0 ? status : initial, () => {}], useEffect: () => {}, useCallback: fn => fn, useRef: value => ({ current: value }) } });
+  const m = moduleAt('components/MonthlyReliability.tsx', { '@/components/PublicReliabilityTest': { PublicReliabilityTest: () => null }, react: { ...react, useState: initial => [hook++ === 0 ? status : initial, () => {}], useEffect: () => {}, useCallback: fn => fn, useRef: value => ({ current: value }) } });
   const html = require('react-dom/server').renderToStaticMarkup(react.createElement(m.MonthlyReliability));
   assert(html.includes('Public test setup is incomplete'));
   assert(html.includes('mailbox delivery is not confirmed'));
@@ -197,4 +197,19 @@ test('calibration requires substantive discrimination detection, not an EHO or d
  const m=adapters(),codes=(rule,explanation)=>Array.from(m.substantiveFindingCodes({result:'yellow',flags:[{rule,explanation,severity:'yellow',recommendation:'Review'}],summary:'Review'}));
  for(const [rule,explanation] of [['Fair housing logo','The Equal Housing Opportunity logo is missing.'],['Disability feature','Accessibility information needs verification.'],['Fair housing disclosure','A nondiscrimination statement is not visible.']])assert.deepEqual(codes(rule,explanation),['other_substantive_issue']);
  for(const [rule,explanation] of [['Discriminatory housing advertising — disability','The wording expresses a limitation or exclusion based on disability.'],['Applicant restriction','Only applicants of a preferred race may apply.'],['Familial-status restriction','The advertising excludes families with children.']])assert.deepEqual(codes(rule,explanation),['housing_discrimination']);
+});
+
+test('Facebook canonical declarations on an external redirect cannot verify a public target',async()=>{
+ const url='https://www.facebook.com/broker/posts/123';
+ const r=await adapters({page:{url:'https://unrelated.example/fake',text:'COMPLIANCE TEST — FICTIONAL',retrieved_at:'2026-09-23T22:00:00Z',sha256:'hash',source_metadata:{canonical_url:url,author_urls:['https://www.facebook.com/broker']}}}).createCanaryDependencies().retrieve(url);
+ assert.equal(r.targetId,undefined);
+});
+
+test('monthly retrieval excludes comments and unrelated authors without exact-post text binding', async () => {
+ const url='https://www.facebook.com/broker/posts/123';
+ const page={url,text:'Comment: COMPLIANCE TEST — FICTIONAL Greater Impact Realty Jonesborough',retrieved_at:'2026-09-23T22:00:00Z',sha256:'hash',source_metadata:{canonical_url:url,author_urls:['https://www.facebook.com/other']}};
+ for(const bound of [undefined,{url:'https://www.facebook.com/other/posts/999',text:page.text,author_urls:['https://www.facebook.com/other']}]) {
+  const r=await adapters({page:{...page,source_metadata:{...page.source_metadata,bound_post:bound}}}).createCanaryDependencies().retrieve(url);
+  assert.equal(r.postBound,false); assert.equal(r.targetId,undefined); assert.equal(r.text,undefined);
+ }
 });

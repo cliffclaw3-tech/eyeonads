@@ -78,11 +78,11 @@ export function createCanaryDependencies(): EngineDependencies {
         const page = await readPublicPage(url, { timeoutMs: 16000 });
         const metadata = page.source_metadata;
         const canonicalUrl = metadata?.canonical_url;
-        const declaredAuthors = metadata?.author_urls || [];
-        const publisherIds = [...new Set((declaredAuthors.length ? declaredAuthors : metadata?.publisher_urls || []).map(facebookPublisherIdentity).filter((id): id is string => !!id))];
+        const bound = metadata?.bound_post;
+        const publisherIds = [...new Set((bound?.author_urls || []).map(facebookPublisherIdentity).filter((id): id is string => !!id))];
         const targetId = publisherIds.length === 1 ? publisherIds[0] : undefined;
-        const identityVerified = !metadata?.canonical_conflict && !!canonicalUrl && publicPostIdentity(canonicalUrl) === publicPostIdentity(url) && !!targetId;
-        return { status: 'retrieved', public: true, canonicalUrl, targetId: identityVerified ? targetId : undefined, text: page.text, capturedAt: page.retrieved_at, contentHash: page.sha256, imageEvidence: [], reason: identityVerified ? 'Public text and declared author metadata captured. Author declarations do not prove account ownership. Images and video were not assessed.' : 'Public text retrieved, but the exact post and publisher identity could not be independently verified; no retrieval pass.' };
+        const identityVerified = !metadata?.canonical_conflict && !metadata?.bound_post_conflict && !!canonicalUrl && !!bound?.text?.trim() && publicPostIdentity(page.url) === publicPostIdentity(url) && publicPostIdentity(canonicalUrl) === publicPostIdentity(url) && publicPostIdentity(bound.url) === publicPostIdentity(url) && !!targetId;
+        return { status: 'retrieved', public: true, canonicalUrl, targetId: identityVerified ? targetId : undefined, postBound: identityVerified, text: identityVerified ? bound!.text : undefined, capturedAt: page.retrieved_at, contentHash: page.sha256, imageEvidence: [], reason: identityVerified ? 'Original post text and declared author metadata captured from the same exact-post entity. Author declarations do not prove account ownership. Images and video were not assessed.' : 'Public page retrieved, but original post text and publisher could not be bound to the exact post; comments and unrelated page text are excluded. No retrieval pass.' };
       } catch (error) {
         const failure = publicPageFailure(error);
         return { status: failure.cause_code === 'not_found' ? 'not_found' : ['forbidden', 'unauthorized', 'challenge', 'rate_limited'].includes(failure.cause_code) ? 'blocked' : 'error', public: false, reason: `Public source unavailable (${failure.cause_code}). No login or restriction bypass attempted.` };

@@ -1,10 +1,20 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MonthlyReport, Stage } from '@/lib/reliability-canary/engine';
+import { PublicReliabilityTest } from '@/components/PublicReliabilityTest';
 type Run = { id: string; period: string; status: string; error: string | null; report: MonthlyReport | null };
 type Status = { config: { enabled: boolean; next_run_at: string | null; public_canary_url: string | null; target_verified_at: string | null; pilot_recipient_override?: string }; runs: Run[]; deliveries: { run_id: string; status: string; recipient: string | null; error: string | null }[] };
-function StageResult({ name, stage }: { name: string; stage: Stage }) {
-  return <li className="rounded-lg border border-white/20 p-3 print:border-gray-400"><strong>{name}: {stage.status.toUpperCase()}</strong><p className="mt-1 text-sm">{stage.reason}</p>{stage.evidence && <details className="mt-2"><summary className="cursor-pointer text-sm underline">View stage evidence</summary><pre className="mt-2 whitespace-pre-wrap break-words text-xs">{JSON.stringify(stage.evidence, null, 2)}</pre></details>}</li>;
+function StageResult({ name, stage, text }: { name: string; stage: Stage; text?: string }) {
+  const evidence=stage.evidence;
+  const findings=(value:unknown)=>Array.isArray(value)&&value.every(item=>typeof item==='string')?(value.length?value.map(item=>item.replaceAll('_',' ')).join(', '):'No substantive issues'):null;
+  const expected=findings(evidence?.expected),observed=findings(evidence?.observed);
+  return <li className="rounded-lg border border-white/20 p-3 print:border-gray-400 print:break-inside-avoid"><h4 className="font-semibold">{name}: {stage.status.toUpperCase()}</h4><p className="mt-1 text-sm">{stage.reason}</p>{(evidence||text) && <details className="mt-2"><summary className="min-h-11 cursor-pointer py-2 text-sm underline">View test evidence</summary>
+    {text&&<div className="mt-2"><p className="font-semibold">Fictional test wording assessed</p><p className="mt-1 whitespace-pre-wrap text-sm">{text}</p></div>}
+    {expected!==null&&<p className="mt-2 text-sm"><strong>Expected:</strong> {expected}.</p>}{observed!==null&&<p className="mt-1 text-sm"><strong>Detected:</strong> {observed}.</p>}
+    {typeof evidence?.summary==='string'&&<p className="mt-2 text-sm">{evidence.summary}</p>}
+    {expected!==null&&!text&&<p className="mt-2 text-sm">This older report did not retain the test wording. Its saved findings are shown above.</p>}
+    {evidence&&<details className="mt-3"><summary className="cursor-pointer text-sm underline">Technical capture details</summary><pre className="mt-2 whitespace-pre-wrap break-words text-xs">{JSON.stringify(evidence,null,2)}</pre></details>}
+  </details>}</li>;
 }
 export function MonthlyReliability() {
   const [status, setStatus] = useState<Status | null>(null), [error, setError] = useState(''), [message, setMessage] = useState(''), [busy, setBusy] = useState(false), [signedOut, setSignedOut] = useState(false);
@@ -45,8 +55,9 @@ export function MonthlyReliability() {
         <button type="button" onClick={() => void load()} className="rounded-lg border border-white/40 px-4 py-3">Refresh monthly status</button>
       </div>
       <p className="mt-2 text-sm text-slate-300 print:text-black">One saved check and report email per month. Repeating Run does not create another email. Allow a few minutes; results are saved if you leave this page.</p>
+      <PublicReliabilityTest onVerified={load}/>
       {latest && <div className="mt-5"><h3 className="font-semibold">{latest.period} — {latest.status === 'complete' ? latest.report?.outcome.toUpperCase() : latest.status}</h3>{latest.error && <p className="mt-2 text-amber-200 print:text-black">{latest.error}</p>}
-        {latest.report && <><ul className="mt-3 grid gap-3 sm:grid-cols-2"><StageResult name="Blind discovery" stage={latest.report.discovery}/><StageResult name="Known-URL retrieval" stage={latest.report.retrieval}/><StageResult name="Public test assessment" stage={latest.report.canaryAssessment}/>{latest.report.controls.map(control => <StageResult key={control.id} name={control.kind === 'clean' ? 'Clean control' : 'Known-defect control'} stage={control.stage}/>)}</ul><p className="mt-3">Known public test recall: {latest.report.metrics.recall === null ? 'Not measurable; no verified public target.' : `${latest.report.metrics.targetsFoundBlind}/${latest.report.metrics.knownPublicTargets} test targets found.`} This single-target check does not measure brokerage-wide recall.</p></>}
+        {latest.report && <><ul className="mt-3 grid gap-3 sm:grid-cols-2"><StageResult name="Blind discovery" stage={latest.report.discovery}/><StageResult name="Known-URL retrieval" stage={latest.report.retrieval}/><StageResult name="Public test assessment" stage={latest.report.canaryAssessment}/>{latest.report.controls.map(control => <StageResult key={control.id} name={control.kind === 'clean' ? 'Clean control' : 'Known-defect control'} stage={control.stage} text={control.text}/>)}</ul><p className="mt-3">Known public test recall: {latest.report.metrics.recall === null ? 'Not measurable; no verified public target.' : `${latest.report.metrics.targetsFoundBlind}/${latest.report.metrics.knownPublicTargets} test targets found.`} This single-target check does not measure brokerage-wide recall.</p></>}
         <p className="mt-4"><strong>Broker report:</strong> {deliveryText}</p>{delivery?.recipient && <p className="break-all text-sm">Recipient: {delivery.recipient}</p>}{delivery?.error && <p className="mt-2 text-amber-200 print:text-black">{delivery.error}</p>}
       </div>}
     </>}

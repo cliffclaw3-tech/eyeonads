@@ -45,7 +45,7 @@ export default async function ReportPage() {
   const missing=setup?.discovery_agent_ids==null?Math.max(0,(setup?.expected_agents||0)-agents.length):0;
   return <main className="broker-report min-h-screen bg-[#0d1b2a] px-4 py-8 text-white sm:px-8 print:bg-white print:text-black">
     <div className="mx-auto max-w-4xl space-y-6">
-      <nav className="flex flex-wrap gap-4 text-sm print:hidden"><Link href="/broker" className="underline">Brokerage setup</Link><Link href="/broker/discovery" className="underline">Run checks / view progress</Link><PrintReport /></nav>
+      <nav className="flex flex-wrap gap-4 text-sm print:hidden"><Link href="/broker" className="underline">Brokerage setup</Link><Link href="/broker/discovery" className="underline">Run checks / view progress</Link><a href="#monthly-reliability" className="underline">Monthly reliability</a><PrintReport /></nav>
       <header><h1 className="text-3xl font-bold">Broker marketing report</h1><p className="mt-2">{setup?.name || 'Your brokerage'}{setup?.discovery_location ? ` · ${setup.discovery_location}` : ''} · Latest saved findings</p></header>
       {(setupResult.error||reviewsResult.error) ? <p role="alert">Report data could not be loaded. Refresh to retry; no coverage counts are confirmed.</p> : <>
         <section className="rounded-xl border border-white/25 p-5 print:border-gray-400">

@@ -10,7 +10,7 @@ function fixture(overrides={}) {
  const checkpoints=new Map();
  const deps={
   async discover(input){calls.discover.push(input);return {urls:[url+'?tracking=ignored'],notes:[],complete:true};},
-  async retrieve(input){calls.retrieve.push(input);return {status:'retrieved',canonicalUrl:url,targetId:'verified-page',public:true,text:config.requiredLabel+' Families with children are not allowed to rent this home.',capturedAt:args.now,contentHash:'sha256-known',reason:'Public post captured.'};},
+  async retrieve(input){calls.retrieve.push(input);return {status:'retrieved',canonicalUrl:url,targetId:'verified-page',postBound:true,public:true,text:config.requiredLabel+' Families with children are not allowed to rent this home.',capturedAt:args.now,contentHash:'sha256-known',reason:'Public post captured.'};},
   async assess(input){calls.assess.push(input);return {findingCodes:/not allowed|preferred race|disabilities will not/.test(input.text)?['housing_discrimination']:[],summary:'Independent assessment',complete:true};},
   async readCheckpoint(key){return checkpoints.get(key)||null;},async writeCheckpoint(key,value){checkpoints.set(key,value);},...overrides,
  };
@@ -22,6 +22,7 @@ test('blind discovery receives only normal query inputs; URL and expected findin
  assert.ok(!JSON.stringify(f.calls.discover).includes('123456'));assert.ok(!JSON.stringify(f.calls.discover).includes('housing_discrimination'));
  for(const input of f.calls.assess)assert.deepEqual(Object.keys(input).sort(),['imageEvidence','state','text']);
  assert.equal(report.metrics.recall,1);assert.equal(report.metrics.controlsPassed,2);
+ assert.deepEqual(report.controls.map(c=>c.text),monthlyControls(args.period).map(c=>c.text));
 });
 test('a direct retrieval success does not repair a blind discovery miss',async()=>{
  const f=fixture({discover:async()=>({urls:[],complete:true,notes:[]})});
@@ -31,7 +32,7 @@ test('unconfigured test is blocked even when both independent controls pass',asy
  const f=fixture();const r=await runMonthlyCanary({...args,config:{...config,publicCanaryUrl:null}},f.deps);
  assert.equal(r.outcome,'blocked');assert.equal(r.metrics.recall,null);assert.equal(r.metrics.controlsPassed,2);assert.equal(f.calls.discover.length,0);assert.equal(f.calls.retrieve.length,0);
 });
-for(const missing of [{status:'unpublished'},{public:false},{targetId:'wrong-target'},{text:'Not labeled'},{contentHash:''},{capturedAt:undefined},{capturedAt:'2026-08-31T23:59:59Z'},{capturedAt:'2099-01-01T00:00:00Z'},{canonicalUrl:'https://www.facebook.com/another/posts/999'}])test(`unavailable or unverifiable test never passes: ${JSON.stringify(missing)}`,async()=>{
+for(const missing of [{postBound:false},{status:'unpublished'},{public:false},{targetId:'wrong-target'},{text:'Not labeled'},{contentHash:''},{capturedAt:undefined},{capturedAt:'2026-08-31T23:59:59Z'},{capturedAt:'2099-01-01T00:00:00Z'},{canonicalUrl:'https://www.facebook.com/another/posts/999'}])test(`unavailable or unverifiable test never passes: ${JSON.stringify(missing)}`,async()=>{
  const base=fixture();const original=base.deps.retrieve;base.deps.retrieve=async u=>({...await original(u),...missing});
  const r=await runMonthlyCanary(args,base.deps);assert.equal(r.metrics.configuredTargets,1);assert.equal(r.metrics.verifiedPublicTargets,0);assert.equal(r.retrieval.status,'blocked');assert.equal(r.discovery.status,'blocked');assert.equal(r.outcome,'blocked');assert.equal(r.metrics.recall,null);
 });
