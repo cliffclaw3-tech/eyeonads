@@ -10,7 +10,7 @@ export const discoveredSchema = {
   type: 'object', additionalProperties: false, required: ['identity_note', 'coverage_gaps', 'candidates'],
   properties: {
     identity_note: { type: 'string' }, coverage_gaps: { type: 'array', items: { type: 'string' } },
-    candidates: { type: 'array', maxItems: 3, items: { type: 'object', additionalProperties: false,
+    candidates: { type: 'array', maxItems: 6, items: { type: 'object', additionalProperties: false,
       required: ['url','title','kind','identity','state','ad_text','context','page_access'], properties: {
         url: { type: 'string' }, title: { type: 'string' }, kind: { type: 'string', enum: ['advertisement','listing','profile'] },
         identity: { type: 'string', enum: ['matched','uncertain'] }, state: { type: 'string', enum: ['TN','VA','NC','unknown'] },

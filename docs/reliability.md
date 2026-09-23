@@ -1,0 +1,19 @@
+# Public-source monitoring and monthly reliability
+
+Daily/weekly brokerage checks remain separate from monthly calibration. Public search is sampled and cannot prove that all ads, private posts, campaigns, images, videos, linked disclosures or current affiliations have been checked. A completed search is not a completed ad assessment or legal approval.
+
+Agent discovery combines up to four candidates from readable publishers with up to two from unrestricted public search. Six sources are selected using bounded source history; if none yields an assessment and time remains, up to three alternatives are attempted. Nine metadata records are retained per agent; deferred and evicted records are disclosed. Observation, attempted retrieval and successful assessment have separate timestamps. Actual source text must establish a local listing/advertising credit. Buyer credits and conflicting primary credits cannot establish ownership. Co-listing is accepted only within explicit local same-firm source credits.
+
+Office social checks inspect up to twenty rendered public Meta Ad Library cards. At most four eligible cards and one media asset per card are assessed in each check, with rotation of deferred or failed cards. Metadata can outlive current visibility. A video poster is not a full video review. Brokerage references with unverified office affiliation remain unassessed.
+
+## Monthly operation
+
+Apply the schema migration before deploying the worker. Apply the separate cron migration only after the authenticated `/api/reliability/worker` route passes its live check. It reuses the existing Vault worker secret. The minute tick makes an HTTP request only when monthly work, a safe retry or lease recovery is due; generation remains one owner/month and defaults to the first day of the next UTC calendar month. It does not alter daily monitoring.
+
+The public Facebook test must be plainly labeled fictional and unpaid, with a resolved publication target. The service-owned configuration records the real post URL, target identity, verification time and expected findings. These answers are excluded from blind search inputs. Discovery URLs must have completed search-source or citation evidence. Direct retrieval of the known URL is scored separately. Unpublished, inaccessible or unverifiable targets stay blocked; they never become a pass. Separate rotating defect and clean controls use the same assessment engine without expected findings in the assessor input.
+
+The broker UI can enable/disable the schedule, run the current month's idempotent check and inspect its saved stage results. A completed monthly report is immutable through the ordinary Run action. Setup changes after completion require an explicit service-managed correction policy or the next month's check; do not overwrite a failed/blocked report as if it originally passed.
+
+Reports go to the verified signup address. Only the explicitly authorized pilot override is supported by this deployment, with service-owned provenance. Synthetic accounts cannot receive routine reports. The outbox claims before sending; provider acceptance with a message ID is distinct from mailbox delivery. Timeouts, incomplete receipts and ambiguous server errors become uncertain and cannot auto-resend. Zero-attempt pre-send blocks can recover after revalidation; known pre-acceptance rejections retry at most three times. Uncertain sends require reconciliation, not another Run click.
+
+Validation includes behavior/integration tests, an opt-in disposable PostgreSQL fixture for the actual ownership/lease/outbox migration, real provider control checks and fixed-corpus benchmarks. Benchmarks are convenience/challenge samples, not estimates of population recall or legal accuracy. Preserve failed intermediate arms and separate discovery, retrieval, eligibility and actual assessment.

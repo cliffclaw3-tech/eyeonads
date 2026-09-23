@@ -22,7 +22,7 @@ export const publicLookup: LookupFunction = (host, options, callback) => {
     const address=addresses[0];
     if (options.all) (callback as unknown as (err:Error|null,addresses:{address:string;family:number}[])=>void)(null,addresses);
     else callback(null,address.address,address.family);
-  }).catch(()=>callback(new Error('Public page lookup failed'),'',4));
+  }).catch((error:unknown)=>callback(new Error(error instanceof Error&&error.message==='Non-public address'?'Non-public address':'Public page DNS lookup failed'),'',4));
 };
 export function extractPageText(html:string):string {
   const $=load(html);
@@ -56,28 +56,90 @@ export function extractImageCandidates(html:string, sourceURL:string):PublicImag
   });
   return candidates;
 }
-export async function readPublicPage(value:string) {
-  let url=publicURL(value);
+export type SourceMetadata={canonical_url?:string;author_urls:string[];publisher_urls:string[];evidence:string[];canonical_conflict:boolean};
+/** These are declarations in this response, NOT platform-verified ownership. */
+export function extractSourceMetadata(html:string,sourceURL:string):SourceMetadata {
+  const $=load(html),source=publicURL(sourceURL).href;
+  const result:SourceMetadata={author_urls:[],publisher_urls:[],evidence:[],canonical_conflict:false};
+  const canonicals:string[]=[];
+  function add(raw:unknown,to:string[],label:string){
+    if(typeof raw!=='string'||!raw.trim()||raw.length>3000||to.length>=8)return;
+    try{const url=publicURL(new URL(raw,source).href).href;if(!to.includes(url))to.push(url);if(result.evidence.length<16)result.evidence.push(label+'='+raw.slice(0,700));}catch{/* Not a safe public declaration. */}
+  }
+  $('link[rel="canonical"]').slice(0,4).each((_,node)=>add($(node).attr('href'),canonicals,'link[rel=canonical].href'));
+  $('meta[property="og:url"]').slice(0,4).each((_,node)=>add($(node).attr('content'),canonicals,'meta[property=og:url].content'));
+  $('meta[property="article:author"]').slice(0,8).each((_,node)=>add($(node).attr('content'),result.author_urls,'meta[property=article:author].content'));
+  $('script[type="application/ld+json"]').slice(0,8).each((_,node)=>{
+    const raw=$(node).text();if(raw.length>100000)return;
+    try{
+      const parsed=JSON.parse(raw),initial=Array.isArray(parsed)?parsed:[parsed];
+      const entities=initial.flatMap(value=>value&&typeof value==='object'&&Array.isArray(value['@graph'])?value['@graph']:value).slice(0,20);
+      for(const entity of entities){
+        if(!entity||typeof entity!=='object')continue;
+        const kinds=Array.isArray(entity['@type'])?entity['@type']:[entity['@type']];
+        if(!kinds.some((kind:unknown)=>typeof kind==='string'&&/^(?:Article|NewsArticle|BlogPosting|SocialMediaPosting|WebPage)$/.test(kind)))continue;
+        for(const field of ['author','publisher'] as const){
+          const values=Array.isArray(entity[field])?entity[field]:[entity[field]];
+          for(const value of values.slice(0,8))if(value&&typeof value==='object')add(value.url,field==='author'?result.author_urls:result.publisher_urls,'JSON-LD '+field+'.url');
+        }
+      }
+    }catch{/* Malformed structured data is not identity proof. */}
+  });
+  if(canonicals.length===1)result.canonical_url=canonicals[0];
+  result.canonical_conflict=canonicals.length>1;
+  return result;
+}
+export type RetrievalFailureCause = 'unauthorized'|'forbidden'|'rate_limited'|'not_found'|'server_error'|'http_error'|'timeout'|'network'|'challenge'|'oversize'|'unsupported_type'|'empty_content'|'unsafe_url'|'redirect_limit'|'deadline';
+export class PublicPageError extends Error {
+  cause_code:RetrievalFailureCause;
+  retryable:boolean;
+  http_status?:number;
+  retry_after_ms?:number;
+  constructor(cause:RetrievalFailureCause,retryable=false,httpStatus?:number) {
+    super(cause);this.name='PublicPageError';this.cause_code=cause;this.retryable=retryable;this.http_status=httpStatus;
+  }
+}
+export function pageHTTPFailure(status:number):PublicPageError {
+  return new PublicPageError(status===401?'unauthorized':status===403?'forbidden':status===429?'rate_limited':[404,410].includes(status)?'not_found':status>=500?'server_error':'http_error',status===429||status>=500,status);
+}
+export function pageContentFailure(text:string,title=''):PublicPageError|undefined {
+  // A captcha script on a normal listing is not a challenge. Require the page's
+  // leading visible text/title to indicate that ordinary content is unavailable.
+  if (/^(just a moment|access denied|verify (that )?you are human|your request is blocked|please enable js and disable|attention required|pardon our interruption|notice: ?lofty does not support embedding)/i.test(text.trim()) || /^(just a moment|access denied|opsany.?web firewall)/i.test(title.trim())) return new PublicPageError('challenge');
+  if(text.length<150)return new PublicPageError('empty_content');
+}
+export function publicPageFailure(error:unknown):PublicPageError {
+  if(error instanceof PublicPageError)return error;
+  const value=error as {name?:string;message?:string;cause?:{message?:string;code?:string}};
+  if(/timeout|abort/i.test(value?.name||'')||/TIMEOUT/.test(value?.cause?.code||''))return new PublicPageError('timeout',true);
+  if(/Not a public page|Non-public address/.test((value?.message||'')+' '+(value?.cause?.message||'')))return new PublicPageError('unsafe_url');
+  return new PublicPageError('network',true);
+}
+export async function readPublicPage(value:string,options:{deadline?:number;timeoutMs?:number}={}) {
+  let url:URL;try {url=publicURL(value);}catch{throw new PublicPageError('unsafe_url');}
+  const remaining=(options.deadline??Infinity)-Date.now();
+  if(remaining<=0)throw new PublicPageError('deadline');
   const dispatcher=new Agent({connect:{lookup:publicLookup}});
-  const signal=AbortSignal.timeout(12000);
+  const signal=AbortSignal.timeout(Math.max(1,Math.floor(Math.min(options.timeoutMs??12000,remaining))));
   try {
     for(let redirects=0;redirects<=3;redirects++) {
       const response=await fetch(url,{dispatcher,redirect:'manual',signal,headers:{'User-Agent':'EyeOnAds/1.0 public marketing review','Accept':'text/html,application/xhtml+xml'}});
       if([301,302,303,307,308].includes(response.status)) {
         await response.body?.cancel();
         const location=response.headers.get('location');
-        if(!location||redirects===3)throw Error('Redirect limit');
-        url=publicURL(new URL(location,url).href);continue;
+        if(!location||redirects===3)throw new PublicPageError('redirect_limit');
+        try {url=publicURL(new URL(location,url).href);}catch{throw new PublicPageError('unsafe_url');}continue;
       }
-      if(!response.ok||!/text\/html|application\/xhtml\+xml/i.test(response.headers.get('content-type')||'')) {await response.body?.cancel();throw Error('Page unavailable');}
-      const reader=response.body?.getReader();if(!reader)throw Error('No page content');
+      if(!response.ok) {await response.body?.cancel();const error=pageHTTPFailure(response.status);const retry=response.headers.get('retry-after');if(retry){const seconds=Number(retry);const delay=Number.isFinite(seconds)?seconds*1000:Date.parse(retry)-Date.now();if(Number.isFinite(delay))error.retry_after_ms=Math.max(0,delay);}throw error;}
+      if(!/text\/html|application\/xhtml\+xml/i.test(response.headers.get('content-type')||'')) {await response.body?.cancel();throw new PublicPageError('unsupported_type',false,response.status);}
+      const reader=response.body?.getReader();if(!reader)throw new PublicPageError('empty_content',false,response.status);
       const chunks:Uint8Array[]=[];let bytes=0;
-      while(true){const part=await reader.read();if(part.done)break;bytes+=part.value.length;if(bytes>1_500_000){await reader.cancel();throw Error('Page too large');}chunks.push(part.value);}
+      while(true){const part=await reader.read();if(part.done)break;bytes+=part.value.length;if(bytes>1_500_000){await reader.cancel();throw new PublicPageError('oversize',false,response.status);}chunks.push(part.value);}
       const html=Buffer.concat(chunks).toString('utf8');
       const text=extractPageText(html);
-      if(text.length<150||/^(just a moment|access denied|verify you are human)/i.test(text))throw Error('Page content unavailable');
-      return {image_candidates:extractImageCandidates(html,url.href),url:url.href,text:text.slice(0,45000),truncated:text.length>45000,sha256:createHash('sha256').update(html).digest('hex'),retrieved_at:new Date().toISOString()};
+      const failure=pageContentFailure(text,load(html)('title').text());if(failure){failure.http_status=response.status;throw failure;}
+      return {source_metadata:extractSourceMetadata(html,url.href),image_candidates:extractImageCandidates(html,url.href),url:url.href,text:text.slice(0,45000),truncated:text.length>45000,sha256:createHash('sha256').update(html).digest('hex'),retrieved_at:new Date().toISOString()};
     }
-    throw Error('Page unavailable');
-  } finally { await dispatcher.destroy(); }
+    throw new PublicPageError('redirect_limit');
+  } catch(error) {throw publicPageFailure(error);} finally { await dispatcher.destroy(); }
 }

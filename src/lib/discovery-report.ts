@@ -1,12 +1,38 @@
-import type { DiscoveredAd } from './discovered-ad-contract';
+import type { RetrievedAd } from './retrieve-ad';
 import type { AdReview } from './ad-review';
 import type { SourceImageReview } from './source-image-review';
-export type ReportCandidate = DiscoveredAd & {reassessed_at?:string;image_review?:SourceImageReview;review:AdReview|null;review_status:'reviewed'|'not_reviewed'|'failed'};
+export type ReportCandidate = RetrievedAd & {reassessed_at?:string;image_review?:SourceImageReview;review:AdReview|null;review_status:'reviewed'|'not_reviewed'|'failed'};
+export function coverageGap(ad:ReportCandidate):string {
+  if(ad.review_status==='failed')return 'The text assessment did not finish. Retry the assessment or review the captured source manually.';
+  if(ad.kind==='profile'||ad.retrieval_status==='profile_only')return 'Only profile information was found. Supply an actual advertisement or property page.';
+  const cause=ad.retrieval_failure?.cause||ad.retrieval_status;
+  if(ad.attribution?.role==='buyer_agent')return 'The agent appears as a buyer representative, not the listing advertiser. Do not assign this advertisement to that agent.';
+  const messages:Record<string,string>={
+    forbidden:'The publisher refused automated access (HTTP 403). Open the original source manually or use another public source.',
+    unauthorized:'The publisher requires access permission. Open the source with your authorized account.',
+    challenge:'The publisher presented a security challenge. Open the original source manually or use another public source.',
+    rate_limited:'The publisher limited requests (HTTP 429). Retry later or inspect the original source.',
+    not_found:'The source is no longer available (HTTP 404 or 410). Look for a current advertisement.',
+    timeout:'The source timed out. Retry later or open it manually.',
+    deadline:'The check reached its time limit. Retry this source or inspect it manually.',
+    network:'The source could not be reached. Retry later or inspect it manually.',
+    no_promotional_content:'The page did not contain assessable advertising text. An old search result may no longer represent a live advertisement.',
+    identity_unverified:'The listing advertiser and brokerage could not be verified together on this source. Confirm attribution before assigning responsibility.',
+    unsupported_state:'The property state could not be verified as TN, VA or NC. Confirm its jurisdiction before assessment.',
+    invalid_block_ids:'Source text selection failed validation. Retry extraction or inspect the page manually.',
+    invalid_selection:'Source text selection failed validation. Retry extraction or inspect the page manually.',
+    provider_temporary:'The extraction provider was temporarily unavailable. Retry later.',
+    provider_error:'The extraction provider did not return usable evidence. Retry or inspect the page manually.',
+  };
+  if(cause&&messages[cause])return messages[cause];
+  if(ad.page_access==='blocked')return 'The source page could not be retrieved. The saved result does not identify the cause; retry or inspect the original source manually.';
+  return 'Matched advertising text and a supported state could not be verified. Inspect the source and its listing attribution manually.';
+}
 export function discoveryReport(candidates:ReportCandidate[]) {
   const assessed=candidates.filter(ad=>ad.review_status==='reviewed');
   const identityNote=`${assessed.length} source${assessed.length===1?'':'s'} had advertising text and agent/brokerage identity verified for assessment. Verify the original source and current context before acting on any finding.`;
-  const coverageGaps=candidates.filter(ad=>ad.review_status!=='reviewed').map(ad=>`${ad.title}: ${ad.page_access==='blocked'?'The source page could not be retrieved.':ad.kind==='profile'?'Only profile information was found.':ad.review_status==='failed'?'The text assessment did not finish.':'Matched advertising text and a supported state could not be verified.'} No ad assessment is confirmed for this source.`);
-  coverageGaps.push('Public searches sample up to six sources per agent. Private or unindexed posts, other advertisements, images, layout and linked disclosures may remain unchecked.');
+  const coverageGaps=candidates.filter(ad=>ad.review_status!=='reviewed').map(ad=>`${ad.title}: ${coverageGap(ad)} No ad assessment is confirmed for this source.`);
+  coverageGaps.push('Public searches sample up to nine sources per agent, including a bounded alternative search when needed. Private or unindexed posts, other advertisements, images, layout and linked disclosures may remain unchecked.');
 
   const sources=candidates.map(ad=>({url:ad.url,title:ad.title}));
   const lines=[`Identity\n${identityNote}`,'Public marketing found'];

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { collectMetaAds } from './meta-browser';
 import type { MetaAdCard } from './meta-ad-cards';
@@ -6,6 +6,8 @@ import { readPublicImage } from './public-image';
 import { reviewAdImage } from './image-review';
 import { reviewAdText } from './ad-review';
 import { OFFICE_SOCIAL_ID, type OfficeSocialAd, type OfficeSocialEvidence } from './office-social-contract';
+
+import { rotateDiscoverySources, markDiscoverySourcesAssessed, markDiscoverySourcesAttempted, type DiscoveryInventoryItem } from './discovery-rotation';
 
 type Setup={name:string;discovery_location?:string|null;location?:string;agents?:{id:string;name:string}[];discovery_agent_ids?:string[]|null};
 const normalized=(text:string)=>text.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
@@ -48,8 +50,22 @@ async function assessCard(card:MetaAdCard,setup:Setup):Promise<OfficeSocialAd>{
   ]);
   return {...card,...relevance,ad_text,...text,...image};
 }
+export function socialContentHash(card:MetaAdCard){
+  // Signed CDN query strings can change without a different creative. Preserve
+  // text and media path changes without treating temporary tokens as new ads.
+  const media=card.media.map(item=>{try{return {kind:item.kind,path:new URL(item.url).pathname};}catch{return {kind:item.kind,path:''};}});
+  return createHash('sha256').update(JSON.stringify({text:card.visible_text,media,scope:card.media_scope})).digest('hex');
+}
+export function previousSocialInventory(evidence:OfficeSocialEvidence|null|undefined,now:string):DiscoveryInventoryItem[]{
+  if(Array.isArray(evidence?.inventory))return evidence.inventory.filter(item=>item&&typeof item.id==='string'&&typeof item.url==='string'&&Number.isFinite(Date.parse(item.last_seen_at))&&Date.parse(item.last_seen_at)<=Date.parse(now)&&(!item.last_assessed_at||Number.isFinite(Date.parse(item.last_assessed_at))&&Date.parse(item.last_assessed_at)<=Date.parse(now)));
+  // Migrate previous three-ad samples without inventing assessments for cards
+  // that were merely captured or whose text review failed.
+  return (evidence?.ads||[]).map(ad=>({id:ad.library_id,url:ad.source_url,title:ad.advertiser?.name||`Meta ad ${ad.library_id}`,content_hash:socialContentHash(ad),last_seen_at:ad.captured_at,last_assessed_at:ad.text_review_status==='reviewed'&&ad.text_review?(ad.reassessed_at||evidence!.retrieved_at):null,assessed_content_hash:ad.text_review_status==='reviewed'&&ad.text_review?socialContentHash(ad):null,content_changed_since_assessment:false})).filter(item=>Number.isFinite(Date.parse(item.last_seen_at))&&Date.parse(item.last_seen_at)<=Date.parse(now)&&(!item.last_assessed_at||Date.parse(item.last_assessed_at)<=Date.parse(now)));
+}
 export async function runOfficeSocial(db:SupabaseClient,ownerId:string,setup:Setup,notBefore?:string){
-  if(notBefore){const prior=await db.from('eyeonads_discovery_reviews').select('status,searched_at').eq('owner_id',ownerId).eq('agent_id',OFFICE_SOCIAL_ID).maybeSingle();if(prior.error)throw Error('Social check history unavailable');if(prior.data?.searched_at&&new Date(prior.data.searched_at)>=new Date(notBefore)&&!(prior.data.status==='running'&&Date.now()-new Date(prior.data.searched_at).getTime()>180000))return null;}
+  const prior=await db.from('eyeonads_discovery_reviews').select('status,searched_at,evidence').eq('owner_id',ownerId).eq('agent_id',OFFICE_SOCIAL_ID).maybeSingle();
+  if(prior.error)throw Error('Social check history unavailable');
+  if(notBefore&&prior.data?.searched_at&&new Date(prior.data.searched_at)>=new Date(notBefore)&&!(prior.data.status==='running'&&Date.now()-new Date(prior.data.searched_at).getTime()>180000))return null;
   const runId=randomUUID();
   const claim=await db.rpc('eyeonads_claim_discovery_owned',{p_owner_id:ownerId,p_agent_id:OFFICE_SOCIAL_ID,p_agent_name:'Office public social advertising',p_run_id:runId});
   if(claim.error)throw Error('Social check could not start.');
@@ -57,13 +73,31 @@ export async function runOfficeSocial(db:SupabaseClient,ownerId:string,setup:Set
   try{
     const query=/jonesborough/i.test(setup.discovery_location||setup.location||'')&&!/jonesborough/i.test(setup.name)?`${setup.name} Jonesborough`:setup.name;
     const found=await collectMetaAds(query);
-    const score=(card:MetaAdCard)=>{const relevance=socialRelevance(card,setup)?.relevance;return (relevance==='roster_name_match'?4:relevance==='office_reference'?3:0)+(card.active==='active'?1:0);};
-    const matched=found.cards.filter(card=>socialRelevance(card,setup)).sort((a,b)=>score(b)-score(a));
-    const ads=await Promise.all(matched.slice(0,3).map(card=>assessCard(card,setup)));
-    const evidence:OfficeSocialEvidence={version:1,kind:'office_public_social',query,source_url:found.observed_page_url,retrieved_at:found.captured_at,acquisition_status:found.status,acquisition_note:found.status==='unavailable'?(found.reason==='no_ads'?'No public ad cards were found in this search sample.':'The public Meta library could not be read for this check. Retry or open the original source manually.'):'Only individually matched public ad cards from this search sample are included; other ads and assets may remain unchecked.',rendered_cards:found.cards.length,excluded_cards:found.cards.length-matched.length,ads,coverage_gaps:[
+    const cards=found.cards.slice(0,20).filter((card,index,list)=>list.findIndex(other=>other.library_id===card.library_id)===index);
+    const observed_cards=cards.map(card=>{
+      const relevance=socialRelevance(card,setup);
+      const eligibility=!relevance?'out_of_scope' as const:relevance.relevance==='brokerage_reference_unverified'?'office_unverified' as const:'eligible' as const;
+      return {id:card.library_id,source_url:card.source_url,publisher:card.advertiser?.name||'Publisher unverified',eligibility,reason:relevance?.relevance_note||'No verified reference to this scoped office or roster; excluded from office assessment.'};
+    });
+    const eligibleIds=observed_cards.filter(card=>card.eligibility==='eligible').map(card=>card.id);
+    const rotation=rotateDiscoverySources({observed:cards.map(card=>({id:card.library_id,url:card.source_url,title:card.advertiser?.name||`Meta ad ${card.library_id}`,content_hash:socialContentHash(card)})),previous:previousSocialInventory(prior.data?.evidence,found.captured_at),now:found.captured_at,batchLimit:4,inventoryLimit:20,eligibleIds});
+    const selected=new Set(rotation.selected.map(item=>item.id));
+    const ads=await Promise.all(cards.filter(card=>selected.has(card.library_id)).map(card=>assessCard(card,setup)));
+    const successful=ads.filter(ad=>ad.text_review_status==='reviewed'&&ad.text_review).map(ad=>ad.library_id);
+    const assessedAt=new Date().toISOString();
+    const attemptedInventory=markDiscoverySourcesAttempted(rotation.inventory,ads.map(ad=>ad.library_id),assessedAt);
+    const inventory=markDiscoverySourcesAssessed(attemptedInventory,successful,assessedAt);
+    const unverified=observed_cards.filter(card=>card.eligibility==='office_unverified').length;
+    const excluded=observed_cards.filter(card=>card.eligibility==='out_of_scope').length;
+    const evidence:OfficeSocialEvidence={version:1,kind:'office_public_social',query,source_url:found.observed_page_url,retrieved_at:found.captured_at,acquisition_status:found.status,acquisition_note:found.status==='unavailable'?(found.reason==='no_ads'?'No public ad cards were found in this search sample.':'The public Meta library could not be read for this check. Retry or open the original source manually.'):'Only individually matched public ad cards from this search sample are included; other ads and assets may remain unchecked.',rendered_cards:cards.length,excluded_cards:unverified+excluded,ads,inventory,observed_cards,deferred_ids:rotation.deferred.map(item=>item.id),rotation:{...rotation.counts,assessed_this_run:successful.length,selected_unassessed:ads.length-successful.length,office_unverified:unverified,excluded_scope:excluded},coverage_gaps:[
       'This is a bounded public Meta Ad Library search, not a complete inventory of social posts or paid campaigns. Private, unindexed and unrendered ads may be missed.',
-      'At most three matching ad cards and one media asset per card are assessed. A video poster is not a review of the video. Current affiliation and responsibility require broker verification.',
-      ...(matched.length>3?[`${matched.length-3} additional matching rendered cards were not assessed in this check.`]:[]),
+      'Up to 20 observed ad identities are retained as metadata. At most four currently observed office/roster-matched cards and one media asset per card are attempted per check. Never-assessed cards, changed content and oldest assessments rotate first; only successful text review advances the assessment date.',
+      'A video poster is not a review of the video. Current affiliation and responsibility require broker verification.',
+      ...(rotation.deferred.length?[`${rotation.deferred.length} currently observed eligible cards were deferred by this check’s assessment budget.`]:[]),
+      ...(unverified?[`${unverified} observed cards mention the brokerage without a verified reference to this office or scoped roster. They were not assessed as office ads.`]:[]),
+      ...(excluded?[`${excluded} observed cards were outside the scoped office or roster and were excluded from assessment.`]:[]),
+      ...(rotation.evicted.length?[`${rotation.evicted.length} known metadata records exceeded the 20-card retention limit and were not retained.`]:[]),
+      ...(ads.length>successful.length?[`${ads.length-successful.length} selected cards did not complete text assessment; their successful-assessment dates were not advanced.`]:[]),
       ...(found.status==='unavailable'?['Public social ads could not be acquired in this check. Open Meta Ad Library or retry; this is not a clean compliance result.']:[]),
       ...ads.filter(ad=>!ad.image_data_url).map(ad=>`Ad ${ad.library_id}: no retained image preview is available; its source may have changed.`),
     ]};

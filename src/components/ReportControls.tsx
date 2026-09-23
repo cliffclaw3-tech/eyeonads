@@ -45,7 +45,7 @@ export function ReportControls(){
  }
  return <section className="space-y-3 rounded-xl border border-white/25 p-5 print:hidden">
   <h2 className="text-xl font-semibold">Run and schedule checks</h2>
-  <p className="text-sm">Each run searches the selected agents and samples up to six public sources per agent for readable ad text. Large rosters can take several hours. Recurring checks use the same partial public-web coverage; they do not connect private accounts.</p>
+  <p className="text-sm">Each run searches the selected agents and samples up to nine public sources per agent for readable ad text. Large rosters can take several hours. Recurring checks use the same partial public-web coverage; they do not connect private accounts.</p>
   {!loaded&&!error&&<p role="status">Loading saved schedule and search progress…</p>}
   <button disabled={!loaded||busy||['running','paused'].includes(job?.status||'')} onClick={()=>void action('run')} className="min-h-11 rounded-lg bg-blue-600 px-4 py-3 font-semibold disabled:opacity-40">{busy?'Saving…':'Run fresh report'}</button>
   {job&&<p role="status">Latest batch: {job.status} · {job.completed} of {job.total} agent searches completed. {job.error} Latest saved findings may predate this batch. Batch counts track queued searches; individual searches can update saved findings separately.</p>}

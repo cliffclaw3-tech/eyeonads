@@ -62,3 +62,19 @@ test('session and setup errors supply actionable recovery links; null review nev
  for(const [status,href] of [[401,'/login'],[400,'/broker']]){const app=controls(async()=>({ok:false,status,json:async()=>({})}));await app.render().find(n=>n.type==='button').props.onClick();assert.ok(app.render().some(n=>n.type==='a'&&n.props.href===href));}
  const app=controls(async()=>({ok:true,status:200,json:async()=>({review:null})}));await app.render().find(n=>n.type==='button').props.onClick();const statuses=app.render().filter(n=>n.props.role==='status').map(n=>n.props.children).join(' ');assert.match(statuses,/already running/);assert.ok(!statuses.includes('Check saved'));
 });
+
+test('fourth social ad is visible and inventory separates observed, assessed, deferred and unverified',()=>{
+ const current=structuredClone(record);
+ current.evidence.ads=Array.from({length:4},(_,i)=>({...ad,library_id:String(400000+i)}));
+ current.evidence.rotation={observed:6,eligible:5,assessed_this_run:4,deferred:1,selected_unassessed:0,office_unverified:1,excluded_scope:0,retained:6};
+ current.evidence.inventory=Array.from({length:6},(_,i)=>({id:String(400000+i),url:`https://www.facebook.com/ads/library/?id=${400000+i}`,title:'Publisher',last_seen_at:ad.captured_at,last_assessed_at:i<4?ad.captured_at:null}));
+ current.evidence.observed_cards=current.evidence.inventory.map((item,i)=>({id:item.id,eligibility:i===5?'office_unverified':'eligible',reason:i===5?'Office not verified':'Office reference'}));
+ current.evidence.deferred_ids=['400004'];
+ const html=render(current);
+ assert(html.includes('Meta Library ID: 400003'));
+ assert(html.includes('6 ad cards observed · 5 eligible for this office · 4 text assessments completed · 1 eligible cards deferred'));
+ assert(html.includes('Deferred by this check’s assessment budget'));
+ assert(html.includes('Office affiliation unverified — not assessed'));
+ assert(html.includes('not a complete inventory of campaigns'));
+ assert(html.includes('Partial ad coverage — saved image reviewed'));
+});

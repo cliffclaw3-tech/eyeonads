@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { MonthlyReliability } from '@/components/MonthlyReliability';
 import { OfficeSocialReport } from '@/components/OfficeSocialReport';
 import { OFFICE_SOCIAL_ID, type OfficeSocialRecord } from '@/lib/office-social-contract';
 import { SourceImageEvidence } from '@/components/SourceImageEvidence';
@@ -9,7 +10,7 @@ import { PrintReport } from '@/components/PrintReport';
 import { ReportControls } from '@/components/ReportControls';
 import { validSourceURL } from '@/lib/discovered-ad-contract';
 
-type Evidence = { candidates: ReportCandidate[]; coverage_gaps: string[]; identity_note: string };
+type Evidence = { incomplete_discovery_passes?:number; source_rotation?:{counts:{retained:number;deferred:number;evicted:number}}; candidates: ReportCandidate[]; coverage_gaps: string[]; identity_note: string };
 export default async function ReportPage() {
   const db = await createClient();
   const {data:{user}} = await db.auth.getUser();
@@ -30,11 +31,14 @@ export default async function ReportPage() {
     const reviewed=candidates.filter(ad=>ad.review_status==='reviewed' && ad.review);
     const issues=reviewed.filter(ad=>ad.review!.result!=='green');
     const presentation=discoveryReport(candidates);
+    if(evidence?.incomplete_discovery_passes)presentation.coverage_gaps.push('One public discovery pass did not finish. Retry the agent search; discovery coverage is reduced.');
+    if(evidence?.source_rotation?.counts.deferred)presentation.coverage_gaps.push(`${evidence.source_rotation.counts.deferred} retained sources were deferred to a later check.`);
+    if(evidence?.source_rotation?.counts.evicted)presentation.coverage_gaps.push(`${evidence.source_rotation.counts.evicted} source records exceeded the bounded saved inventory. Saved history is incomplete.`);
     return {agent,saved,evidence: evidence?{...evidence,coverage_gaps:presentation.coverage_gaps}:null,current,candidates,reviewed,issues};
   });
   const checked=rows.filter(row=>row.reviewed.length>0).length;
   const flagged=rows.filter(row=>row.issues.length>0);
-  const gaps=rows.filter(row=>!row.current || !row.reviewed.length || row.candidates.some(ad=>ad.review_status!=='reviewed'));
+  const gaps=rows.filter(row=>!row.current || !row.reviewed.length || !!row.evidence?.incomplete_discovery_passes || !!row.evidence?.source_rotation?.counts.deferred || !!row.evidence?.source_rotation?.counts.evicted || row.candidates.some(ad=>ad.review_status!=='reviewed'));
   const socialAds=socialRecord?.evidence?.ads||[];
   const socialImageCount=socialAds.filter(ad=>ad.image_review.observations).length;
   const imageCount=rows.flatMap(row=>row.candidates).filter(ad=>ad.image_review?.observations).length;
@@ -55,6 +59,7 @@ export default async function ReportPage() {
         </section>
         <ReportControls />
         <OfficeSocialReport record={socialRecord} />
+        <MonthlyReliability />
         <section id="possible-issues" className="scroll-mt-4"><h2 className="text-2xl font-semibold">Possible issues to review ({flagged.length} agents)</h2>
           {!flagged.length && <p className="mt-3">No possible issues are recorded in the completed text assessments. Check the coverage gaps below before drawing any conclusion.</p>}
           {flagged.map(row=><article key={row.agent.id} className="mt-4 space-y-3 rounded-xl border border-amber-400/50 p-5"><h3 className="text-xl font-semibold">{row.agent.name}</h3><p className="text-sm">Checked {new Date(row.saved!.searched_at).toLocaleString('en-US',{timeZone:'America/New_York'})} Eastern</p>{row.issues.map((ad,index)=><div key={index} className="space-y-2"><p className="font-semibold">{ad.review!.result.toUpperCase()} · {ad.title}</p>{validSourceURL(ad.url)&&<a href={ad.url} target="_blank" rel="noopener noreferrer" className="break-all underline">Open original source ↗</a>}<p>{ad.review!.summary}</p>{ad.review!.coverage_notes?.length ? <p>Assessment coverage: {ad.review!.coverage_notes.join(' ')}</p> : null}{ad.reassessed_at && <p className="text-sm">Saved text reassessed {new Date(ad.reassessed_at).toLocaleString('en-US',{timeZone:'America/New_York'})} Eastern; original source capture unchanged.</p>}<ul className="list-disc space-y-2 pl-5">{ad.review!.flags.map((flag,i)=><li key={i}><strong>{flag.rule}:</strong> {flag.explanation} <span className="block">Next action: {flag.recommendation}</span></li>)}</ul><details><summary className="cursor-pointer underline">Text and context assessed</summary><p className="mt-2 whitespace-pre-wrap break-words">{ad.ad_text}</p><p className="mt-2">{ad.context}</p></details></div>)}</article>)}
