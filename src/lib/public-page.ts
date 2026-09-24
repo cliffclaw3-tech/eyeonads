@@ -94,8 +94,87 @@ export function extractSourceMetadata(html:string,sourceURL:string):SourceMetada
     const binding=bindExactFacebookPost(postEntities,result.canonical_url,source);
     result.bound_post=binding.post;result.bound_post_conflict=binding.conflict;
   }
+  const payload=bindFacebookPayload(html,source,canonicals);
+  if(payload.conflict){result.bound_post=undefined;result.bound_post_conflict=true;}
+  else if(payload.post){
+    // Recheck JSON-LD against the resolved exact permalink as well. Conflicting
+    // declarations cannot be hidden behind a different canonical URL format.
+    const resolvedEntities=postEntities.map(entity=>{
+      const resolved={...entity};
+      for(const field of ['url','@id']){
+        try {
+          const u=new URL(String(resolved[field])),expected=new URL(source);
+          const match=u.pathname.match(/^\/([a-zA-Z0-9.]+)\/posts\/(?:[^/]+\/)?([a-zA-Z0-9]+)\/?$/);
+          if(u.protocol==='https:'&&u.hostname===expected.hostname&&!u.username&&!u.password&&!u.port&&!u.hash&&!['comment_id','reply_comment_id','story_fbid','fbid','id'].some(key=>u.searchParams.has(key))&&match?.[1].toLowerCase()===expected.pathname.split('/')[1].toLowerCase()&&match?.[2]===payload.numericPostId)resolved[field]=source;
+        }catch{/* Unresolved or comment declarations remain ineligible. */}
+      }
+      return resolved;
+    });
+    const ld=bindExactFacebookPost(resolvedEntities,source,source);
+    if(ld.conflict||ld.post&&(ld.post.text!==payload.post.text||JSON.stringify(ld.post.author_urls)!==JSON.stringify(payload.post.author_urls))){
+      result.bound_post=undefined;result.bound_post_conflict=true;
+    }else{
+      result.bound_post=payload.post;result.canonical_url=source;result.canonical_conflict=false;
+      result.evidence.push('Facebook public JSON: exact story/content/message IDs, permalink, canonical alias and actor declarations agree');
+    }
+  }
   return result;
 }
+/** Read only same-story fields in Facebook's publicly returned JSON. Never join
+ * arbitrary graph nodes, comments, attached stories or page-level author data. */
+export function bindFacebookPayload(html:string,source:string,canonicals:string[]):{post?:BoundPublicPost;conflict:boolean;numericPostId?:string} {
+  type Obj=Record<string,unknown>;
+  const obj=(x:unknown):Obj=>x!==null&&typeof x==='object'&&!Array.isArray(x)?x as Obj:{};
+  function identity(raw:unknown):{publisher:string;post:string}|null {
+    try {
+      if(typeof raw!=='string'||raw.length>3000)return null;
+      const u=new URL(raw);
+      if(u.protocol!=='https:'||u.hostname!=='www.facebook.com'||u.username||u.password||u.port||u.hash||['comment_id','reply_comment_id','story_fbid','fbid','id'].some(key=>u.searchParams.has(key)))return null;
+      const m=u.pathname.match(/^\/([a-zA-Z0-9.]+)\/posts\/(?:[^/]+\/)?([a-zA-Z0-9]+)\/?$/);
+      return m?{publisher:m[1].toLowerCase(),post:m[2]}:null;
+    }catch{return null;}
+  }
+  const target=identity(source);if(!target)return {conflict:false};
+  const $=load(html),scripts=$('script[type="application/json"]'),roots:Obj[]=[];
+  let count=0,overflow=scripts.length>64;
+  function walk(value:unknown,depth:number){
+    if(!value||typeof value!=='object')return;
+    if(depth>50||++count>80000){overflow=true;return;}
+    const x=obj(value),id=identity(x.permalink_url);
+    if(x.__typename==='Story'&&id?.post===target!.post&&id.publisher===target!.publisher)roots.push(x);
+    for(const child of Object.values(value)) {if(overflow)return;walk(child,depth+1);}
+  }
+  scripts.slice(0,64).each((_,node)=>{
+    const raw=$(node).text();if(raw.length>1500000){overflow=true;return;}
+    try{walk(JSON.parse(raw),0);}catch{overflow=true;}
+  });
+  if(overflow)return {conflict:true};
+  if(!roots.length)return {conflict:false};
+  const matches:BoundPublicPost[]=[];
+  const numericPostId=roots[0].post_id;
+  for(const root of roots){
+    const content=obj(obj(obj(root.comet_sections).content).story);
+    const body=obj(obj(obj(content.comet_sections).message).story);
+    const exact=(raw:unknown)=>{const id=identity(raw);return id?.post===target.post&&id.publisher===target.publisher;};
+    if(root.post_id!==numericPostId||typeof root.id!=='string'||!root.id||typeof root.post_id!=='string'||!/^\d+$/.test(root.post_id)||content.id!==root.id||body.id!==root.id||content.post_id!==root.post_id||!exact(root.permalink_url)||!exact(content.wwwURL)||!exact(body.url))return {conflict:true};
+    // The numeric alias must be declared by this same story, on the same
+    // publisher path. A matching post number on another publisher is rejected.
+    if(!canonicals.length||canonicals.some(raw=>{const id=identity(raw);return !id||id.publisher!==target.publisher||![target.post,root.post_id].includes(id.post);}))return {conflict:true};
+    if(!Array.isArray(root.actors)||root.actors.length!==1||!Array.isArray(content.actors)||content.actors.length!==1)return {conflict:true};
+    const author=obj(root.actors[0]),contentAuthor=obj(content.actors[0]);
+    if(typeof author.id!=='string'||!author.id||author.id!==contentAuthor.id||author.url!==contentAuthor.url||typeof author.url!=='string')return {conflict:true};
+    try {
+      const u=new URL(author.url);
+      if(u.protocol!=='https:'||u.hostname!=='www.facebook.com'||u.username||u.password||u.port||u.hash||u.search||u.pathname.replace(/\/$/,'').toLowerCase()!=='/'+target.publisher)return {conflict:true};
+    }catch{return {conflict:true};}
+    const text=obj(content.message).text;
+    if(typeof text!=='string'||!text.trim()||text.length>10000||obj(body.message).text!==text)return {conflict:true};
+    matches.push({url:source,text:text.trim(),author_urls:[author.url]});
+  }
+  if(matches.some(x=>JSON.stringify(x)!==JSON.stringify(matches[0])))return {conflict:true};
+  return {post:matches[0],conflict:false,numericPostId:numericPostId as string};
+}
+
 /** Strict identity for exact post binding; the social adapter independently rechecks it. */
 function facebookPostKey(raw:string):string|null {
   try{
@@ -193,9 +272,13 @@ export async function readPublicPage(value:string,options:{deadline?:number;time
       const chunks:Uint8Array[]=[];let bytes=0;
       while(true){const part=await reader.read();if(part.done)break;bytes+=part.value.length;if(bytes>1_500_000){await reader.cancel();throw new PublicPageError('oversize',false,response.status);}chunks.push(part.value);}
       const html=Buffer.concat(chunks).toString('utf8');
-      const text=extractPageText(html);
-      const failure=pageContentFailure(text,load(html)('title').text());if(failure){failure.http_status=response.status;throw failure;}
-      return {source_metadata:extractSourceMetadata(html,url.href),image_candidates:extractImageCandidates(html,url.href),url:url.href,text:text.slice(0,45000),truncated:text.length>45000,sha256:createHash('sha256').update(html).digest('hex'),retrieved_at:new Date().toISOString()};
+      const visibleText=extractPageText(html),source_metadata=extractSourceMetadata(html,url.href);
+      const failure=pageContentFailure(visibleText,load(html)('title').text());
+      // A fully bound original post can supply text for a JS-only public shell;
+      // it must never override an explicit challenge or other access failure.
+      if(failure&&(failure.cause_code!=='empty_content'||!source_metadata.bound_post||source_metadata.bound_post_conflict)){failure.http_status=response.status;throw failure;}
+      const text=source_metadata.bound_post?.text||visibleText;
+      return {source_metadata,image_candidates:extractImageCandidates(html,url.href),url:url.href,text:text.slice(0,45000),truncated:text.length>45000,sha256:createHash('sha256').update(html).digest('hex'),retrieved_at:new Date().toISOString()};
     }
     throw new PublicPageError('redirect_limit');
   } catch(error) {throw publicPageFailure(error);} finally { await dispatcher.destroy(); }
