@@ -140,8 +140,8 @@ export default function HomePage() {
             },
             {
               icon: "📬",
-              title: "Weekly Reports",
-              desc: "Use saved scan history to review recent results. Scheduled reports and automated alerts are not part of this beta candidate.",
+              title: "Broker Review Reports",
+              desc: "Invited brokers can review saved public-search findings and coverage gaps. A completed search does not mean every ad was found or assessed; inaccessible sources remain unverified.",
               highlight: "bg-purple-900/20 border-purple-800/40",
             },
           ].map((f) => (
