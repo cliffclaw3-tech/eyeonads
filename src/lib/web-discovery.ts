@@ -2,6 +2,12 @@ import OpenAI from 'openai';
 import { discoveredSchema, type DiscoveredAd } from './discovered-ad-contract';
 
 export type DiscoveryInput={agent_name:string;brokerage:string;brokerage_website?:string;location?:string;known_profile?:string;alternatives?:{excluded_hosts:string[];excluded_urls:string[]}};
+export function discoveryFailureCode(error:unknown){
+  const value=error as {status?:unknown;name?:unknown;code?:unknown};
+  const status=typeof value?.status==='number'&&Number.isInteger(value.status)&&value.status>=400&&value.status<=599?value.status:undefined;
+  const providerCode=typeof value?.code==='string'&&['model_not_found','invalid_api_key','insufficient_quota','unsupported_parameter','invalid_value','rate_limit_exceeded'].includes(value.code)?value.code:undefined;
+  return {...(providerCode?{provider_code:providerCode}:{}),code:status===401||status===403?'provider_auth':status===429?'provider_rate_limit':status&&status>=500?'provider_unavailable':status?'provider_request_rejected':value?.name==='SyntaxError'?'invalid_json':value?.name==='APIConnectionTimeoutError'?'provider_timeout':'invalid_or_incomplete_response',...(status?{http_status:status}:{})};
+}
 export function decodeSearchEnvelope(raw:unknown){
   const response=typeof raw==='string'&&raw.length<2_000_000?JSON.parse(raw):raw;
   if(!response||typeof response!=='object'||response.status!=='completed'||!Array.isArray(response.output)||!response.output.some((item:{type?:string;status?:string})=>item.type==='web_search_call'&&item.status==='completed'))throw Error('Search incomplete');
@@ -35,6 +41,7 @@ export async function discoverMarketing(input:DiscoveryInput){
   try{if(input.brokerage_website)readable.push(new URL(input.brokerage_website.includes('://')?input.brokerage_website:`https://${input.brokerage_website}`).hostname);}catch{/* optional website */}
   const passes=await Promise.allSettled([searchPass(input,4,readable),searchPass(input,2)]);
   const completed=passes.flatMap(pass=>pass.status==='fulfilled'?[pass.value]:[]);
+  for(let index=0;index<passes.length;index++){const pass=passes[index];if(pass.status==='rejected')console.error('eyeonads_discovery_pass_failure',{pass:index===0?'readable':'unrestricted',...discoveryFailureCode(pass.reason)});}
   if(!completed.length)throw Error('Search incomplete');
   const candidates:DiscoveredAd[]=[];
   for(const pass of completed)for(const ad of pass.found.candidates)if(!candidates.some(item=>item.url===ad.url))candidates.push(ad);

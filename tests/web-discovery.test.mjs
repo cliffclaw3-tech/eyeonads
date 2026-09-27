@@ -7,7 +7,7 @@ function subject(response){
  let request;const requests=[];
  const exports={};
  const source=ts.transpileModule(fs.readFileSync('src/lib/web-discovery.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
- vm.runInNewContext(source,{exports,process:{env:{OPENAI_API_KEY:'stub'}},Date,Set,JSON,Error,require:name=>{
+ vm.runInNewContext(source,{exports,process:{env:{OPENAI_API_KEY:'stub'}},Date,Set,JSON,Error,console:{error:()=>{}},require:name=>{
  if(name==='openai')return {default:class{async post(path,args){request={path,...args};requests.push(request);return typeof response==='function'?response(request):response;}}};
  if(name==='./discovered-ad-contract')return {discoveredSchema:{}};
  throw Error(name);
@@ -36,4 +36,13 @@ test('readable and unrestricted passes both run; a failed pass remains a coverag
  assert.equal(s.requests().length,2);
  assert(s.requests().some(r=>r.body.tools[0].filters));assert(s.requests().some(r=>!r.body.tools[0].filters));
  assert.equal(result.incompletePasses,1);assert.match(result.found.coverage_gaps.join(' '),/pass failed/);
+});
+
+test('discovery diagnostics classify HTTP errors without retaining provider text',()=>{
+ const s=subject(envelope);
+ for(const [status,code] of [[401,'provider_auth'],[403,'provider_auth'],[429,'provider_rate_limit'],[500,'provider_unavailable'],[400,'provider_request_rejected']]){
+  const result=s.discoveryFailureCode({status,message:'SECRET',body:'SECRET'});
+  assert.equal(result.code,code);assert.equal(result.http_status,status);assert.ok(!JSON.stringify(result).includes('SECRET'));
+ }
+ assert.equal(s.discoveryFailureCode({status:'SECRET',name:'SyntaxError'}).code,'invalid_json');
 });
