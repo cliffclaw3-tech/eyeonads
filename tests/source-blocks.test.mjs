@@ -89,3 +89,10 @@ test('explicit property-source Courtesy of credit links identity without generic
 test('coincidental one-word overlap cannot join disconnected attribution fragments',()=>{
  const result=sourceAttribution([{id:0,text:'Listed by: Wes Shields • shared'},{id:1,text:'shared Greater Impact Realty Jonesborough'}],{},'Wes Shields','Greater Impact Realty');assert.equal(result.verified,false);
 });
+
+
+test('explicit primary credit accepts exact Agent with Firm connector only',()=>{
+ const check=text=>sourceAttribution(sourceBlocks(text),{},'Jane Example','Example Realty');
+ assert.equal(check('Listing Provided By: Jane Example with Example Realty.').verified,true);
+ for(const text of ['Listing Provided By: Jane Example working with Example Realty.','Listing Provided By: Jane Example with Other Agent at Example Realty.','Listing Provided By: Other Agent with Example Realty. Related agents Jane Example','Sold By: Jane Example with Example Realty.','Listed by Other Agent with Other Realty. Related properties Listed by Jane Example with Example Realty.'])assert.equal(check(text).verified,false,text);
+});

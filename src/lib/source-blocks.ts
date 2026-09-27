@@ -36,6 +36,9 @@ function localIdentity(body:string,agent:string,brokerage:string):boolean {
   const first=ni<fi?name:firm,start=Math.min(ni,fi),end=Math.max(ni,fi);
   const between=value.slice(start+first.length,end).replace(/\b(brokered by|brokerage|broker|listing office|llc|inc|jonesborough|realtor|phone|tel|cell)\b/g,'').replace(/[0-9 ]/g,'');
   if(start<=5&&!between)return true;
+  // Explicit primary credit: "Listing Provided By: Agent with Firm".
+  // Accept only this exact connector, not arbitrary prose or a second identity.
+  if(ni===0&&ni<fi&&value.slice(name.length,fi).trim()==='with')return true;
   // Shared-firm co-listing is allowed only as an explicit comma/and/& separated
   // list of human names before the firm. Arbitrary intervening prose or firms fail.
   if(ni<fi){
