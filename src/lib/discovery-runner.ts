@@ -12,10 +12,12 @@ type Setup = {name:string;website?:string;location?:string;discovery_location?:s
 type Candidate = RetrievedAd & { image_review?:SourceImageReview; review: AdReview | null; review_status: 'reviewed' | 'not_reviewed' | 'failed' };
 export async function runDiscovery(db: SupabaseClient, ownerId: string, setup: Setup, agent: Agent) {
  const runId=randomUUID();
+ let stage = 'claim';
  const claim=await db.rpc('eyeonads_claim_discovery_owned',{p_owner_id:ownerId,p_agent_id:agent.id,p_agent_name:agent.name,p_run_id:runId});
- if(claim.error)throw new Error('Search could not start. Please retry.');
+ if(claim.error){console.error('eyeonads_discovery_failure',{run_id:runId,stage,outcome:'database_error'});throw new Error('Search could not start. Please retry.');}
  if(!claim.data)throw new Error('This agent is already being searched. Retry after three minutes.');
  try {
+  stage='load_previous';
   const previous=await db.from('eyeonads_discovery_reviews').select('evidence,searched_at').eq('owner_id',ownerId).eq('agent_id',agent.id).maybeSingle();
   if(previous.error)throw Error('Previous source evidence could not be loaded');
   const previousEvidence=previous.data?.evidence;
@@ -33,6 +35,7 @@ export async function runDiscovery(db: SupabaseClient, ownerId: string, setup: S
   const previousInventory:DiscoveryInventoryItem[]=(Array.isArray(previousEvidence?.source_inventory)?previousEvidence.source_inventory:legacyInventory).filter((item:DiscoveryInventoryItem)=>validSourceURL(item.url)&&item.id===item.url&&Number.isFinite(Date.parse(item.last_seen_at))).slice(0,9);
   const discover=(alternatives?:{excluded_hosts:string[];excluded_urls:string[]})=>discoverMarketing({agent_name:agent.name,brokerage:setup.name,brokerage_website:setup.website,location:setup.discovery_location||setup.location,known_profile:agent.social_url,alternatives});
   const startedAt=Date.now();
+  stage='public_discovery';
   const {found,openedURLs,searchQueries,incompletePasses}=await discover();
   async function assess(foundAds:DiscoveredAd[],opened:Set<string>):Promise<Candidate[]> {return Promise.all(foundAds.filter((ad:DiscoveredAd)=>validSourceURL(ad.url)).map((ad:DiscoveredAd)=>groundCandidate(ad,opened)).map(async(candidate:DiscoveredAd)=>{
     const ad=await retrieveAd(candidate,agent.name,setup.name,{deadline:startedAt+90000});
@@ -45,6 +48,7 @@ export async function runDiscovery(db: SupabaseClient, ownerId: string, setup: S
     ]);
     return {...ad,...text,image_review};
   }));}
+  stage='source_rotation';
   const fresh:DiscoveredAd[]=found.candidates.filter((ad:DiscoveredAd)=>validSourceURL(ad.url)).slice(0,6);
   for(const ad of fresh)sourceKinds.set(ad.url,ad.kind);
   const observedIds=new Set(fresh.map(ad=>ad.url));
@@ -53,6 +57,7 @@ export async function runDiscovery(db: SupabaseClient, ownerId: string, setup: S
   const evicted=new Map(rotation.evicted.map(item=>[item.id,item]));
   let inventory=rotation.inventory;
   const selected:DiscoveredAd[]=rotation.selected.map(item=>freshByURL.get(item.url)||({url:item.url,title:item.title,kind:sourceKinds.get(item.url)||'advertisement',state:'unknown',identity:'uncertain',ad_text:'',page_access:'snippet_only',context:'Previously observed source URL; current text, advertising attribution and identity must be retrieved and verified again.'}));
+  stage='source_assessment';
   let candidates=await assess(selected,openedURLs);
   const recordOutcomes=(outcomes:Candidate[])=>{
     const captured=outcomes.filter(ad=>ad.capture?.sha256).map(ad=>({id:ad.url,url:ad.url,title:ad.title,content_hash:ad.capture!.sha256}));
@@ -62,6 +67,7 @@ export async function runDiscovery(db: SupabaseClient, ownerId: string, setup: S
     inventory=markDiscoverySourcesAttempted(rotation.inventory,outcomes.filter(ad=>rotation.inventory.some(item=>item.id===ad.url)).map(ad=>ad.url),completedAt);
     inventory=markDiscoverySourcesAssessed(inventory,outcomes.filter(ad=>ad.review_status==='reviewed'&&inventory.some(item=>item.id===ad.url)).map(ad=>ad.url),completedAt);
   };
+  stage='record_outcomes';
   recordOutcomes(candidates);
   let attemptedSources=candidates.length;
   // A short second search can escape a group of inaccessible portals without exceeding the worker deadline.
@@ -84,6 +90,7 @@ export async function runDiscovery(db: SupabaseClient, ownerId: string, setup: S
       candidates=[...candidates,...extra];
     }catch{ /* Preserve the first search's truthful coverage gaps if the alternative search cannot finish. */ }
   }
+  stage='build_report';
   const presentation=discoveryReport(candidates);
   if(incompletePasses){const warning='One public discovery pass did not finish; these results have reduced discovery coverage. Retry the agent search.';presentation.coverage_gaps.push(warning);presentation.report+='\n\n'+warning;}
   const watchSources=inventory.map(item=>({url:item.url,title:item.title,kind:sourceKinds.get(item.url)||'advertisement'}));
@@ -93,10 +100,14 @@ export async function runDiscovery(db: SupabaseClient, ownerId: string, setup: S
   const finalEvicted=[...evicted.values()].filter(item=>!inventory.some(retained=>retained.id===item.id));
   const sourceRotation={counts:{...finalRotation.counts,observed:observedIds.size,selected:attemptedIds.size,deferred:deferred.length,evicted:finalEvicted.length},selected_ids:[...attemptedIds],deferred_ids:deferred.map(item=>item.id),evicted:finalEvicted,successfully_assessed_this_run:candidates.filter(ad=>ad.review_status==='reviewed').length,note:'Inventory is bounded source history, not all advertising. Last seen, last attempted and last assessed are separate. Historical assessments are not current clearance; only this run’s reviewed candidates were assessed now.'};
   const evidence={version:5,incomplete_discovery_passes:incompletePasses||0,attempted_sources:attemptedSources,opened_urls:[...openedURLs],search_queries:searchQueries,watch_sources:watchSources,source_inventory:inventory,source_rotation:sourceRotation,identity_note:presentation.identity_note,coverage_gaps:presentation.coverage_gaps,candidates};
+  stage='save_report';
   const saved=await db.from('eyeonads_discovery_reviews').update({status:'complete',report:presentation.report,sources:presentation.sources,evidence,searched_at:new Date().toISOString(),error:null}).eq('owner_id',ownerId).eq('agent_id',agent.id).eq('run_id',runId).select('agent_id,agent_name,status,report,sources,searched_at,error,evidence').single();
   if(saved.error||!saved.data)throw Error('Save failed');
   return saved.data;
  }catch{
+  // Only static stages and a generated run ID: never log provider messages,
+  // source content, identities, credentials or database response payloads.
+  console.error('eyeonads_discovery_failure',{run_id:runId,stage,outcome:'failed'});
   const message='Public search did not finish or could not be saved. No new review is confirmed. Retry this agent.';
   await db.from('eyeonads_discovery_reviews').update({status:'failed',error:message}).eq('owner_id',ownerId).eq('agent_id',agent.id).eq('run_id',runId);
   throw new Error(message);

@@ -29,18 +29,22 @@ export async function POST(request: Request) {
   const item = data?.[0];
   if (!item) return NextResponse.json({ idle: true });
   let success = false;
+  let stage = 'read_prior_review';
   try {
     // Recover an interrupted worker after the review saved, without buying another search.
     const prior = await db.from('eyeonads_discovery_reviews').select('status,searched_at')
       .eq('owner_id', item.owner_id).eq('agent_id', item.agent_id).maybeSingle();
     if (prior.error) throw prior.error;
+    stage = 'run_discovery';
     await Promise.all([
       prior.data?.status !== 'complete' || !prior.data.searched_at || new Date(prior.data.searched_at) < new Date(item.created_at) ? runDiscovery(db, item.owner_id, item.setup, item.agent) : Promise.resolve(),
       // Once per report batch, separately from roster counts; failures remain visible in the social report.
       runOfficeSocial(db, item.owner_id, item.setup, item.created_at).catch(()=>null),
     ]);
     success = true;
-  } catch { /* Store a safe message in the finish RPC, never provider errors or secrets. */ }
+  } catch {
+    console.error('eyeonads_worker_failure', { item_id: item.id, stage, outcome: 'failed' });
+  }
   const finished = await db.rpc('eyeonads_finish_discovery_job_item', {
     p_item: item.id, p_token: item.lease_token, p_success: success,
   });

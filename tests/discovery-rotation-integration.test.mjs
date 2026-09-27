@@ -11,15 +11,15 @@ class FixtureDate extends Date {
  static now(){return fixtureNow;}
 }
 const candidate=id=>({url:`https://fixture.test/${id}`,title:id,kind:'listing',identity:'matched',state:'TN',ad_text:'',page_access:'snippet_only',context:'Indexed fixture.'});
-function fixture({initial=[],fresh=[],alternatives=[],reviewed=false}={}){
+function fixture({initial=[],fresh=[],alternatives=[],reviewed=false,discoveryError=false}={}){
  let saved,previous=initial.length?{searched_at:'2026-09-01T00:00:00Z',evidence:{source_inventory:initial}}:null;
- const retrievals=[],searches=[];
+ const retrievals=[],searches=[],diagnostics=[];
  const exports={};
- vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/discovery-runner.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,URL,Date:FixtureDate,Set,Map,require:name=>{
+ vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/discovery-runner.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,URL,Date:FixtureDate,Set,Map,console:{error:(...args)=>diagnostics.push(args)},require:name=>{
   if(name==='./discovery-rotation')return rotation;
   if(name==='node:crypto')return {randomUUID:()=> 'fixture-run'};
   if(name==='./discovery-report')return {discoveryReport};
-  if(name==='./web-discovery')return {discoverMarketing:async input=>{searches.push(input);return {found:{candidates:input.alternatives?alternatives:fresh},openedURLs:new Set(),searchQueries:['fixture']};}};
+  if(name==='./web-discovery')return {discoverMarketing:async input=>{searches.push(input);if(discoveryError)throw Error('PRIVATE_PROVIDER_SECRET');return {found:{candidates:input.alternatives?alternatives:fresh},openedURLs:new Set(),searchQueries:['fixture']};}};
   if(name==='./retrieve-ad')return {retrieveAd:async(ad,agent,firm,options)=>{retrievals.push({url:ad.url,options});return reviewed?{...ad,identity:'matched',state:'TN',page_access:'page_read',ad_text:'Actual supplied property advertising.',capture:{sha256:`hash:${ad.url}`,retrieved_at:new FixtureDate().toISOString()},image_data_url:'SECRET_BYTES'}:{...ad,page_access:'blocked'};}};
   if(name==='./ad-review')return {reviewAdText:async()=>({result:'green',summary:'Sampled text reviewed.',flags:[]})};
   if(name==='./source-image-review')return {reviewSourceImage:async()=>({status:'not_requested',notes:'No image.'})};
@@ -28,7 +28,7 @@ function fixture({initial=[],fresh=[],alternatives=[],reviewed=false}={}){
  }});
  const q={eq(){return this},select(){return this},async single(){return {data:saved,error:null}}};
  const db={rpc:async()=>({data:true,error:null}),from:()=>({select:()=>({eq(){return this},async maybeSingle(){return {data:previous,error:null}}}),update:value=>{saved=value;return q;}})};
- return {retrievals,searches,async run(){const result=await exports.runDiscovery(db,'fixture-owner',{name:'Fixture firm'},{id:'fixture-agent',name:'Fixture agent'});previous={searched_at:result.searched_at,evidence:result.evidence};return result;}};
+ return {retrievals,searches,diagnostics,async run(){const result=await exports.runDiscovery(db,'fixture-owner',{name:'Fixture firm'},{id:'fixture-agent',name:'Fixture agent'});previous={searched_at:result.searched_at,evidence:result.evidence};return result;}};
 }
 const inventory=(id,assessed=false)=>({id:`https://fixture.test/${id}`,url:`https://fixture.test/${id}`,title:id,last_seen_at:'2026-09-01T00:00:00Z',last_assessed_at:assessed?'2026-09-01T00:00:00Z':null,assessed_content_hash:null,content_changed_since_assessment:false});
 test('runner limits primary6 and alternative3 even if a discovery provider exceeds both bounds',async()=>{
@@ -53,4 +53,14 @@ test('new sources are assessed with hashes while old retained history and explic
  assert.ok(!JSON.stringify(report.evidence.source_inventory).includes('SECRET_BYTES'));
  assert.equal(report.evidence.source_inventory.filter(x=>x.title.startsWith('old-')).length,3);
  assert.ok(report.evidence.watch_sources.every(x=>x.url&&x.title&&x.kind));
+});
+
+
+test('failed discovery logs only safe stage and correlation ID, never provider error',async()=>{
+ const f=fixture({discoveryError:true});
+ await assert.rejects(f.run(),/Public search did not finish/);
+ assert.equal(f.diagnostics.length,1);
+ assert.equal(f.diagnostics[0][0],'eyeonads_discovery_failure');
+ assert.deepEqual(JSON.parse(JSON.stringify(f.diagnostics[0][1])),{run_id:'fixture-run',stage:'public_discovery',outcome:'failed'});
+ assert.ok(!JSON.stringify(f.diagnostics).includes('PRIVATE_PROVIDER_SECRET'));
 });
