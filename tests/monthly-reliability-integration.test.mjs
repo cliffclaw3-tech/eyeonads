@@ -258,3 +258,22 @@ test('monthly retrieval excludes comments and unrelated authors without exact-po
   assert.equal(r.postBound,false); assert.equal(r.targetId,undefined); assert.equal(r.text,undefined);
  }
 });
+
+test('discovery traces keep bounded query/source evidence without feeding answers to search',async()=>{
+ const url='https://www.facebook.com/example/posts/a-neutral-title/123456/';
+ const response={id:'response-offline',status:'completed',output:[{type:'web_search_call',status:'completed',action:{type:'search',queries:['Example Realty Agent'],sources:[{url}]}}],output_text:JSON.stringify({urls:[url],notes:[],complete:true})};
+ const m=adapters({response});const r=await m.createCanaryDependencies().discover({brokerage:'Example Realty',office:'Town',agentNames:['Agent'],state:'TN',publicCanaryUrl:'SECRET'});
+ assert.equal(r.urls[0],url);assert.equal(r.trace.actions[0].queries[0],'Example Realty Agent');assert.equal(r.trace.actions[0].sources[0],url);assert.equal(r.trace.candidates[0].retained,true);assert.equal(r.trace.responseId,'response-offline');assert(!JSON.stringify(m.request()).includes('SECRET'));
+});
+test('trace limits large provider metadata and rejects unsafe URLs',()=>{
+ const m=adapters();const trace=m.discoveryTrace({output:Array.from({length:9},()=>({type:'web_search_call',status:'completed',action:{queries:Array(9).fill('x'.repeat(900)),sources:Array(24).fill({url:'https://www.facebook.com/example/posts/1'})}}))},['http://127.0.0.1/private'],[]);
+ assert.equal(trace.actions.length,3);assert.equal(trace.actions[0].queries.length,6);assert.equal(trace.actions[0].queries[0].length,500);assert.equal(trace.actions[0].sources.length,20);assert.equal(trace.candidates.length,0);assert.equal(trace.droppedURLs,1);assert.equal(trace.truncated,true);
+});
+test('numeric slug post identity matches direct numeric path but comments do not',()=>{
+ assert.equal(engine.publicPostIdentity('https://www.facebook.com/example/posts/neutral-title/123456/'),'facebook:post:123456');
+ assert.equal(engine.publicPostIdentity('https://www.facebook.com/example/posts/123456'),'facebook:post:123456');
+ for(const suffix of ['?comment_id=1','?reply_comment_id=2','#comment'])assert.equal(engine.publicPostIdentity('https://www.facebook.com/example/posts/neutral-title/123456/'+suffix),null);
+ assert.equal(engine.publicPostIdentity('https://www.facebook.com/example/posts/neutral-title/not-an-id'),null);
+});
+
+test('citation-only grounding is visible in trace and ambiguous identity queries reject',()=>{const m=adapters(),url='https://www.facebook.com/example/posts/123';const trace=m.discoveryTrace({output:[{type:'message',content:[{annotations:[{type:'url_citation',url}]}]}]},[url],[url]);assert.equal(trace.citations[0],url);assert.equal(engine.publicPostIdentity(url+'?story_fbid=OTHER'),null);});

@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { reviewAdText, type AdReview } from '../ad-review';
 import { readPublicPage, publicPageFailure, publicURL } from '../public-page';
-import { publicPostIdentity, type EngineDependencies, type MonthlyReport, type QueryInputs, type Stage } from './engine';
+import { publicPostIdentity, type EngineDependencies, type MonthlyReport, type QueryInputs, type Stage, type DiscoveryTrace } from './engine';
 import type { SendReceipt } from './delivery';
 
 export function blindSearchInput(input: QueryInputs): QueryInputs {
@@ -52,6 +52,50 @@ export function groundedDiscoveryURLs(response:unknown,candidates:string[]):stri
   }
   return [...new Set(candidates.filter(url=>{const identity=publicPostIdentity(url);return !!identity&&identities.has(identity);}))];
 }
+/** Bounded diagnostic data from the provider response, never new search input. */
+export function discoveryTrace(response:unknown,candidates:string[],retained:string[]):DiscoveryTrace {
+  type Obj=Record<string,unknown>;
+  const object=(x:unknown):Obj=>x!==null&&typeof x==='object'&&!Array.isArray(x)?x as Obj:{};
+  const r=object(response),output=Array.isArray(r.output)?r.output:[];
+  const trace:DiscoveryTrace={actions:[],citations:[],droppedURLs:0,candidates:[],truncated:false};
+  if(typeof r.id==='string'){trace.responseId=r.id.slice(0,120);if(r.id.length>120)trace.truncated=true;}
+  function strings(values:unknown[],limit:number,max:number):string[]{
+    if(values.length>limit)trace.truncated=true;
+    return values.slice(0,limit).filter((v):v is string=>typeof v==='string').map(v=>{if(v.length>max)trace.truncated=true;return v.slice(0,max);});
+  }
+  function safeURL(raw:unknown):string|null {
+    if(typeof raw!=='string'||raw.length>3000){trace.droppedURLs++;return null;}
+    try{return publicURL(raw).href;}catch{trace.droppedURLs++;return null;}
+  }
+  const calls=output.filter(x=>object(x).type==='web_search_call');
+  if(calls.length>3)trace.truncated=true;
+  for(const call of calls.slice(0,3)){
+    const x=object(call),action=object(x.action);
+    if(typeof x.status==='string'&&x.status.length>40||typeof action.type==='string'&&action.type.length>40)trace.truncated=true;
+    const queries=Array.isArray(action.queries)?action.queries:typeof action.query==='string'?[action.query]:[];
+    const sources=Array.isArray(action.sources)?action.sources.map(x=>object(x).url):[];
+    if(typeof action.url==='string')sources.push(action.url);
+    if(sources.length>20)trace.truncated=true;
+    trace.actions.push({status:typeof x.status==='string'?x.status.slice(0,40):'unknown',type:typeof action.type==='string'?action.type.slice(0,40):'unknown',queries:strings(queries,6,500),sources:sources.slice(0,20).map(safeURL).filter((x):x is string=>!!x)});
+  }
+  for(const item of output.slice(0,30)){
+    const x=object(item);if(x.type!=='message'||!Array.isArray(x.content))continue;
+    for(const part of x.content.slice(0,10)){
+      const annotations=object(part).annotations;if(!Array.isArray(annotations))continue;
+      if(annotations.length>30)trace.truncated=true;
+      for(const annotation of annotations.slice(0,30)){
+        const a=object(annotation);if(a.type!=='url_citation')continue;
+        const url=safeURL(a.url);if(!url||trace.citations.includes(url))continue;
+        if(trace.citations.length>=20){trace.truncated=true;continue;}trace.citations.push(url);
+      }
+    }
+    if(x.content.length>10)trace.truncated=true;
+  }
+  if(output.length>30)trace.truncated=true;
+  if(candidates.length>20)trace.truncated=true;
+  for(const candidate of candidates.slice(0,20)){const url=safeURL(candidate);if(url)trace.candidates.push({url,retained:retained.includes(candidate)});}
+  return trace;
+}
 export function createCanaryDependencies(): EngineDependencies {
   return {
     async discover(input, options) {
@@ -69,7 +113,7 @@ export function createCanaryDependencies(): EngineDependencies {
       if (!Array.isArray(result.urls) || result.urls.length > 20 || result.urls.some((url: unknown) => typeof url !== 'string') || !Array.isArray(result.notes) || typeof result.complete !== 'boolean') throw Error('Invalid search result');
       const safe=result.urls.filter((url:string)=>{try{publicURL(url);return true;}catch{return false;}});
       const grounded=groundedDiscoveryURLs(response,safe);
-      return { urls:grounded, notes:[...result.notes.filter((note:unknown)=>typeof note==='string').slice(0,9), `${safe.length-grounded.length} ungrounded or unsupported links excluded; retained links have completed search-source or citation evidence.`], complete:result.complete };
+      return { urls:grounded, trace:discoveryTrace(response,result.urls,grounded), notes:[...result.notes.filter((note:unknown)=>typeof note==='string').slice(0,9), `${safe.length-grounded.length} ungrounded or unsupported links excluded; retained links have completed search-source or citation evidence.`], complete:result.complete };
     },
     async retrieve(url, options) {
       if (!publicPostIdentity(url)) return { status: 'blocked', public: false, reason: 'A supported public Facebook post or ad identity is required.' };

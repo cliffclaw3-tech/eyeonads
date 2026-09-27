@@ -12,7 +12,15 @@ export type CanaryConfig = {
   requiredLabel: string;
   expectedFindingCodes: string[];
 };
-export type DiscoveryResult = { urls: string[]; notes: string[]; complete: boolean };
+export type DiscoveryTrace = {
+  responseId?: string;
+  actions: { status: string; type: string; queries: string[]; sources: string[] }[];
+  citations: string[];
+  droppedURLs: number;
+  candidates: { url: string; retained: boolean }[];
+  truncated: boolean;
+};
+export type DiscoveryResult = { urls: string[]; notes: string[]; complete: boolean; trace?: DiscoveryTrace };
 export type RetrievedCanary = {
   status: 'retrieved' | 'blocked' | 'not_found' | 'unpublished' | 'error';
   canonicalUrl?: string;
@@ -72,10 +80,12 @@ export function publicPostIdentity(raw: string): string | null {
   try {
     const u = new URL(raw);
     const host = u.hostname.toLowerCase().replace(/^(www|m|mbasic)\./, '');
-    if (u.protocol !== 'https:' || u.username || u.password || u.port || host !== 'facebook.com') return null;
+    if (u.protocol !== 'https:' || u.username || u.password || u.port || host !== 'facebook.com' || u.hash || u.searchParams.has('comment_id') || u.searchParams.has('reply_comment_id')) return null;
     const path = u.pathname.replace(/\/+$/, '') || '/';
     const story = u.searchParams.get('story_fbid');
-    if (story) return `facebook:post:${story}`;
+    if (story) return ['/story.php','/permalink.php'].includes(path)&&/^[a-zA-Z0-9]+$/.test(story) ? `facebook:post:${story}` : null;
+    const slugPost = path.match(/^\/[a-zA-Z0-9.]+\/posts\/[^/]+\/(\d+)$/)?.[1];
+    if (slugPost) return `facebook:post:${slugPost}`;
     const post = path.match(/\/(?:posts|videos)\/([^/]+)$/)?.[1];
     if (post) return `facebook:post:${post}`;
     const libraryId = path === '/ads/library' ? u.searchParams.get('id') : null;
@@ -131,7 +141,7 @@ export async function runMonthlyCanary(args: { config: CanaryConfig; period: str
     try {
       found = await cached('blind-discovery', discoveryInput, () => bounded(30_000, signal => deps.discover(discoveryInput, { signal })), value => value?.complete === true);
       if (!found || !Array.isArray(found.urls) || found.urls.some(url => typeof url !== 'string') || typeof found.complete !== 'boolean') throw new Error('Malformed discovery result');
-      discovery = stage(!found.complete ? 'error' : found.urls.some(url => publicPostIdentity(url) === targetIdentity) ? 'pass' : 'fail', 'Blind discovery checked for the known public test independently of its saved URL.', { candidateUrls: found.urls, notes: found.notes, searchComplete: found.complete });
+      discovery = stage(!found.complete ? 'error' : found.urls.some(url => publicPostIdentity(url) === targetIdentity) ? 'pass' : 'fail', 'Blind discovery checked for the known public test independently of its saved URL.', { candidateUrls: found.urls, notes: found.notes, searchComplete: found.complete, ...(found.trace ? { trace: found.trace } : {}) });
     } catch { found = undefined; discovery = stage('error', 'Blind discovery failed; no pass inferred.'); }
     try {
       // This deliberate direct retrieval is diagnostic. It never counts as discovery.
