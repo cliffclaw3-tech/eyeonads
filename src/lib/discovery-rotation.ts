@@ -49,7 +49,13 @@ function key(item: DiscoveryObservation): string { return JSON.stringify([item.u
 function priority(item: DiscoveryInventoryItem): RotationCandidate['priority'] {
   return !item.last_assessed_at ? 'never_assessed' : item.content_changed_since_assessment ? 'changed_content' : 'oldest_assessment';
 }
-function compare(a: DiscoveryInventoryItem, b: DiscoveryInventoryItem): number {
+function compare(a: DiscoveryInventoryItem, b: DiscoveryInventoryItem, now: number): number {
+  // After a week without an attempt, age outranks category for both retention
+  // and selection. Failed attempts advance this clock, never assessment status.
+  const attemptTime = (item: DiscoveryInventoryItem) => Date.parse(item.last_attempted_at || item.last_assessed_at || item.last_seen_at);
+  const overdue = (item: DiscoveryInventoryItem) => now - attemptTime(item) >= 7 * 86400000;
+  const ageOrder = Number(overdue(b)) - Number(overdue(a)) || (overdue(a) && overdue(b) ? attemptTime(a) - attemptTime(b) : 0);
+  if (ageOrder) return ageOrder;
   const ranks = { never_assessed: 0, changed_content: 1, oldest_assessment: 2 };
   const rotationTime = (item: DiscoveryInventoryItem) => priority(item) === 'oldest_assessment' ? Date.parse(item.last_assessed_at!) : item.last_attempted_at ? Date.parse(item.last_attempted_at) : 0;
   return ranks[priority(a)] - ranks[priority(b)] || rotationTime(a) - rotationTime(b) || lexical(a.id, b.id);
@@ -61,7 +67,8 @@ function compare(a: DiscoveryInventoryItem, b: DiscoveryInventoryItem): number {
  * its last_seen_at. Default selection includes all known sources. For a source that can
  * only assess currently rendered cards, supply their IDs in eligibleIds instead.
  *
- * Never-assessed sources rank first, then detected content changes, then oldest successful
+ * Sources without an attempt for seven days take precedence, oldest attempt first.
+ * Otherwise never-assessed sources rank first, then detected content changes, then oldest successful
  * assessment. Within never-assessed/changed groups, the oldest actual attempt rotates blocked sources; stable caller IDs break remaining ties. Current observations win metadata conflicts;
  * duplicate observations with the same ID choose the lexical URL/title/hash tuple, making
  * results independent of input order. Different IDs are never merged, even with equal URLs.
@@ -107,10 +114,10 @@ export function rotateDiscoverySources(args: {
   const isEligible = (item: DiscoveryInventoryItem) => !eligible || eligible.has(item.id);
   const all = [...known.values()];
   // Preserve the priority queue under a tight cap, while exposing every dropped item.
-  const retained = all.sort((a, b) => Number(isEligible(b)) - Number(isEligible(a)) || (isEligible(a) ? compare(a, b) : Number(seen.has(b.id)) - Number(seen.has(a.id)) || Date.parse(b.last_seen_at) - Date.parse(a.last_seen_at) || lexical(a.id, b.id)));
+  const retained = all.sort((a, b) => Number(isEligible(b)) - Number(isEligible(a)) || (isEligible(a) ? compare(a, b, now) : Number(seen.has(b.id)) - Number(seen.has(a.id)) || Date.parse(b.last_seen_at) - Date.parse(a.last_seen_at) || lexical(a.id, b.id)));
   const inventory = retained.slice(0, args.inventoryLimit).sort((a, b) => lexical(a.id, b.id));
   const evicted = retained.slice(args.inventoryLimit).sort((a, b) => lexical(a.id, b.id));
-  const candidates = inventory.filter(isEligible).sort(compare).map(item => ({ ...item, observed_this_run: seen.has(item.id), priority: priority(item) }));
+  const candidates = inventory.filter(isEligible).sort((a, b) => compare(a, b, now)).map(item => ({ ...item, observed_this_run: seen.has(item.id), priority: priority(item) }));
   const selected = candidates.slice(0, args.batchLimit), deferred = candidates.slice(args.batchLimit);
   return { inventory, selected, deferred, evicted, counts: { observed: seen.size, retained: inventory.length, eligible: candidates.length, selected: selected.length, deferred: deferred.length, ineligible: inventory.length - candidates.length, evicted: evicted.length, previously_assessed: inventory.filter(item => item.last_assessed_at).length, never_assessed: inventory.filter(item => !item.last_assessed_at).length, changed_content: inventory.filter(item => item.content_changed_since_assessment).length } };
 }

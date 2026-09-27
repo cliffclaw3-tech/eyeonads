@@ -86,3 +86,49 @@ test('blocked attempts rotate without ever being counted as assessed',()=>{
  const attempted=markDiscoverySourcesAttempted(first.inventory,first.selected.map(x=>x.id),t1);
  const next=rotate(observed,attempted,{now:t2});assert.equal(next.selected[0].id,'d');assert.equal(next.counts.previously_assessed,0);assert.equal(next.counts.never_assessed,4);
 });
+
+
+test('repeated blocked attempts cannot starve retained assessed sources across daily runs',()=>{
+ let inventory=rotate(Array.from({length:9},(_,i)=>source(`s${i}`)),[],{now:t0,batchLimit:6,inventoryLimit:9}).inventory;
+ inventory=markDiscoverySourcesAssessed(inventory,['s6','s7','s8'],t0);
+ const attempted=new Set();
+ for(let day=2;day<=12;day++){
+  const now=new Date(Date.UTC(2026,8,day)).toISOString();
+  const result=rotate([],inventory,{now,batchLimit:6,inventoryLimit:9});
+  for(const item of result.selected)attempted.add(item.id);
+  inventory=markDiscoverySourcesAttempted(result.inventory,result.selected.map(x=>x.id),now);
+ }
+ assert.equal(attempted.size,9);
+ assert.equal(inventory.filter(x=>x.last_assessed_at).length,3);
+ assert.ok(inventory.filter(x=>x.last_assessed_at).every(x=>x.last_assessed_at===t0));
+});
+test('overdue sources survive fresh unassessed inventory pressure, without claiming assessment',()=>{
+ let inventory=rotate(Array.from({length:9},(_,i)=>source(`old-${i}`)),[],{now:t0,batchLimit:6,inventoryLimit:9}).inventory;
+ inventory=markDiscoverySourcesAssessed(inventory,['old-6','old-7','old-8'],t0);
+ inventory=markDiscoverySourcesAttempted(inventory,Array.from({length:6},(_,i)=>`old-${i}`),'2026-09-09T00:00:00Z');
+ const result=rotate(Array.from({length:3},(_,i)=>source(`new-${i}`)),inventory,{now:'2026-09-10T00:00:00Z',batchLimit:6,inventoryLimit:9});
+ assert.ok(['old-6','old-7','old-8'].every(id=>result.selected.some(x=>x.id===id)));
+ assert.equal(result.inventory.length,9);assert.equal(result.evicted.length,3);
+ assert.equal(result.counts.previously_assessed,3);
+});
+
+test('overdue precedence honors eligibility, zero batch and stable ordering',()=>{
+ const initial=rotate(['a','b','c'].map(id=>source(id)),[],{now:t0}).inventory;
+ const saved=markDiscoverySourcesAssessed(initial,['a','b'],t0);
+ const now='2026-09-10T00:00:00Z';
+ const one=rotate([],saved,{now,batchLimit:1,eligibleIds:['b','c']});
+ assert.ok(!one.selected.some(x=>x.id==='a'));
+ assert.deepEqual(one,rotate([],saved.toReversed(),{now,batchLimit:1,eligibleIds:['b','c']}));
+ const zero=rotate([],saved,{now,batchLimit:0});
+ assert.equal(zero.selected.length,0);assert.equal(zero.deferred.length,3);
+ assert.ok(zero.inventory.filter(x=>x.last_assessed_at).every(x=>x.last_assessed_at===t0));
+});
+test('recent failed attempt yields to older overdue sources without clearing changed content',()=>{
+ const initial=rotate([source('changed','old'),source('older','old')],[],{now:t0}).inventory;
+ const saved=markDiscoverySourcesAssessed(initial,['changed','older'],t0);
+ const changed=rotate([source('changed','new')],saved,{now:t1,batchLimit:0}).inventory;
+ const attempted=markDiscoverySourcesAttempted(changed,['changed'],'2026-09-09T00:00:00Z');
+ const next=rotate([],attempted,{now:'2026-09-10T00:00:00Z',batchLimit:1});
+ assert.equal(next.selected[0].id,'older');
+ assert.equal(next.inventory.find(x=>x.id==='changed').content_changed_since_assessment,true);
+});

@@ -5,17 +5,22 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import * as rotation from '../src/lib/discovery-rotation.ts';
 import {discoveryReport} from '../src/lib/discovery-report.ts';
+const fixtureNow = Date.parse('2026-09-02T00:00:00Z');
+class FixtureDate extends Date {
+ constructor(...args){super(...(args.length?args:[fixtureNow]));}
+ static now(){return fixtureNow;}
+}
 const candidate=id=>({url:`https://fixture.test/${id}`,title:id,kind:'listing',identity:'matched',state:'TN',ad_text:'',page_access:'snippet_only',context:'Indexed fixture.'});
 function fixture({initial=[],fresh=[],alternatives=[],reviewed=false}={}){
  let saved,previous=initial.length?{searched_at:'2026-09-01T00:00:00Z',evidence:{source_inventory:initial}}:null;
  const retrievals=[],searches=[];
  const exports={};
- vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/discovery-runner.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,URL,Date,Set,Map,require:name=>{
+ vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/discovery-runner.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,URL,Date:FixtureDate,Set,Map,require:name=>{
   if(name==='./discovery-rotation')return rotation;
   if(name==='node:crypto')return {randomUUID:()=> 'fixture-run'};
   if(name==='./discovery-report')return {discoveryReport};
   if(name==='./web-discovery')return {discoverMarketing:async input=>{searches.push(input);return {found:{candidates:input.alternatives?alternatives:fresh},openedURLs:new Set(),searchQueries:['fixture']};}};
-  if(name==='./retrieve-ad')return {retrieveAd:async(ad,agent,firm,options)=>{retrievals.push({url:ad.url,options});return reviewed?{...ad,identity:'matched',state:'TN',page_access:'page_read',ad_text:'Actual supplied property advertising.',capture:{sha256:`hash:${ad.url}`,retrieved_at:new Date().toISOString()},image_data_url:'SECRET_BYTES'}:{...ad,page_access:'blocked'};}};
+  if(name==='./retrieve-ad')return {retrieveAd:async(ad,agent,firm,options)=>{retrievals.push({url:ad.url,options});return reviewed?{...ad,identity:'matched',state:'TN',page_access:'page_read',ad_text:'Actual supplied property advertising.',capture:{sha256:`hash:${ad.url}`,retrieved_at:new FixtureDate().toISOString()},image_data_url:'SECRET_BYTES'}:{...ad,page_access:'blocked'};}};
   if(name==='./ad-review')return {reviewAdText:async()=>({result:'green',summary:'Sampled text reviewed.',flags:[]})};
   if(name==='./source-image-review')return {reviewSourceImage:async()=>({status:'not_requested',notes:'No image.'})};
   if(name==='./discovered-ad-contract')return {validSourceURL:url=>typeof url==='string'&&url.startsWith('https://'),groundCandidate:ad=>ad,reviewableAd:ad=>ad.page_access==='page_read'&&ad.ad_text.length>0};
