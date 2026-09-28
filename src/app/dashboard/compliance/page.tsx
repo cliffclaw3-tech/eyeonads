@@ -632,13 +632,13 @@ export default function CompliancePage() {
             <p className="text-white/40 text-sm">No scans yet.</p>
           ) : (
             <div>
-              <div className="space-y-4 sm:hidden">{history.map(scan => <article key={scan.id} className="rounded-lg border border-white/15 p-3 space-y-2">
+              <div className="space-y-4 lg:hidden">{history.map(scan => <article key={scan.id} className="rounded-lg border border-white/15 p-3 space-y-2">
                 <p className="text-sm text-white/60">{new Date(scan.scanned_at).toLocaleDateString()} · {scan.state} · {scan.flags.length} flags</p>
                 <ComplianceBadge result={scan.result}/><p className="text-sm break-words">{scan.ad_copy.slice(0,150)}</p>
                 {scan.image_filename && <p className="text-xs text-blue-200 break-words">Image: {scan.image_filename}</p>}
                 <button disabled={scanning || fixing || imageLoading} onClick={() => openSavedScan(scan)} className="min-h-11 text-blue-300 underline">View result</button>
               </article>)}</div>
-              <div className="hidden sm:block overflow-x-auto"><table className="w-full min-w-[650px] text-sm [&_th]:pr-4 [&_td]:pr-4">
+              <div className="hidden lg:block overflow-x-auto"><table className="w-full min-w-[650px] text-sm [&_th]:pr-4 [&_td]:pr-4">
                 <thead>
                   <tr className="text-white/40 text-xs uppercase tracking-widest border-b border-white/10">
                     <th className="pb-2 text-left">Date</th>
