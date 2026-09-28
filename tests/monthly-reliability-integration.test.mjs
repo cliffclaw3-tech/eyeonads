@@ -20,6 +20,7 @@ function adapters({ page, review, response, env = {} } = {}) {
     '../public-page': { publicURL: value => { const u = new URL(value); if (u.hostname === '127.0.0.1') throw Error(); return u; }, readPublicPage: async () => { if (page instanceof Error) throw page; return page; }, publicPageFailure: e => ({ cause_code: e.message }) },
     '../ad-review': { reviewAdText: async (...args) => { assessArgs = args; return review || { flags: [], summary: 'No issues detected' }; } },
     './engine': engine,
+    './search-plan': moduleAt('lib/reliability-canary/search-plan.ts'),
   }, { OPENAI_API_KEY: 'stub', EYEONADS_PAID_ANALYSIS_ENABLED: '1', SENDGRID_API_KEY: 'stub', ...env });
   return { ...m, request: () => request, assessArgs: () => assessArgs };
 }
@@ -28,7 +29,18 @@ test('monthly blind adapter strips hidden answers and tolerates gateway JSON env
   const m = adapters({ response: JSON.stringify({ status: 'completed', output: [{ type: 'web_search_call', status: 'completed', action: {sources:[{url:'https://www.facebook.com/person/posts/123'}]} }], output_text: JSON.stringify({ urls: ['https://www.facebook.com/person/posts/123'], notes: [], complete: true }) }) });
   const result = await m.createCanaryDependencies().discover({ brokerage: 'Firm', office: 'Jonesborough', agentNames: ['Agent'], state: 'TN', publicCanaryUrl: 'SECRET_URL', requiredLabel: 'SECRET_LABEL', expectedFindingCodes: ['SECRET_EXPECTED'] });
   assert.equal(result.urls.length, 1); const sent = JSON.stringify(m.request());
-  assert.equal(m.request().path, '/responses'); assert(!sent.includes('SECRET')); assert(sent.includes('Agent'));
+  assert.equal(m.request().path, '/responses'); assert(!sent.includes('SECRET')); assert(!sent.includes('Agent')); assert(sent.includes('plannedQueries'));
+  assert.equal(result.complete,false); // URL evidence alone does not establish execution of the new plan.
+});
+test('public-post plan completes only with exact completed query evidence and provider completion',async()=>{
+ const input={brokerage:'Firm',office:'Example Town',state:'TN',agentNames:['Agent']};
+ const plan=moduleAt('lib/reliability-canary/search-plan.ts').publicPostSearchPlan(input);
+ for(const complete of [true,false]){
+  const m=adapters({response:{status:'completed',output:plan.map(query=>({type:'web_search_call',status:'completed',action:{type:'search',query}})),output_text:JSON.stringify({urls:[],notes:[],complete})}});
+  const result=await m.createCanaryDependencies().discover(input);
+  assert.equal(result.complete,complete);assert.equal(result.trace.planComplete,true);
+  assert.match(result.notes.join(' '),/individual agent and exhaustive coverage are not established/);
+ }
 });
 test('monthly retrieval needs same-post canonical and one explicit author identity', async () => {
   const url = 'https://www.facebook.com/broker/posts/123';

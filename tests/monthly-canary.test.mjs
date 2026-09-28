@@ -55,6 +55,14 @@ test('failed stages retry but a saved control does not',async()=>{
  const f=fixture();let n=0;f.deps.discover=async()=>{n++;throw Error('outage');};
  await runMonthlyCanary(args,f.deps);await runMonthlyCanary(args,f.deps);assert.equal(n,2);assert.equal(f.calls.assess.length,3);
 });
+test('revised public-post discovery cannot reuse the previous advertising-plan checkpoint',async()=>{
+ const f=fixture();const read=[];const original=f.deps.readCheckpoint;
+ f.deps.readCheckpoint=async key=>{read.push(key);return original(key);};
+ await runMonthlyCanary(args,f.deps);
+ assert.ok(read.includes('blind-discovery-public-posts-v2'));
+ assert.ok(!read.includes('blind-discovery'));
+ assert.equal(f.calls.discover.length,1);
+});
 test('controls rotate deterministically and remain clearly fictional',()=>{
  const a=monthlyControls('2026-09'),b=monthlyControls('2026-10');assert.notEqual(a[0].id,b[0].id);assert.deepEqual(a,monthlyControls('2026-12'));
  for(const c of [...a,...b])assert.match(c.text,/COMPLIANCE TEST — FICTIONAL/);

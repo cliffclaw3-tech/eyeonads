@@ -13,6 +13,8 @@ export type CanaryConfig = {
   expectedFindingCodes: string[];
 };
 export type DiscoveryTrace = {
+  plannedQueries?: string[];
+  planComplete?: boolean;
   responseId?: string;
   actions: { status: string; type: string; queries: string[]; sources: string[] }[];
   citations: string[];
@@ -139,7 +141,7 @@ export async function runMonthlyCanary(args: { config: CanaryConfig; period: str
   const configured = targetIdentity && config.expectedTargetId && config.targetVerifiedAt && Number.isFinite(Date.parse(config.targetVerifiedAt)) && Date.parse(config.targetVerifiedAt) <= Date.parse(args.now) && config.requiredLabel.trim().length >= 12;
   if (configured) {
     try {
-      found = await cached('blind-discovery', discoveryInput, () => bounded(30_000, signal => deps.discover(discoveryInput, { signal })), value => value?.complete === true);
+      found = await cached('blind-discovery-public-posts-v2', discoveryInput, () => bounded(30_000, signal => deps.discover(discoveryInput, { signal })), value => value?.complete === true);
       if (!found || !Array.isArray(found.urls) || found.urls.some(url => typeof url !== 'string') || typeof found.complete !== 'boolean') throw new Error('Malformed discovery result');
       discovery = stage(!found.complete ? 'error' : found.urls.some(url => publicPostIdentity(url) === targetIdentity) ? 'pass' : 'fail', 'Blind discovery checked for the known public test independently of its saved URL.', { candidateUrls: found.urls, notes: found.notes, searchComplete: found.complete, ...(found.trace ? { trace: found.trace } : {}) });
     } catch { found = undefined; discovery = stage('error', 'Blind discovery failed; no pass inferred.'); }
