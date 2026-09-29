@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { MlsAccessRequest } from "@/components/MlsAccessRequest";
 import type { SparkRosterPreview } from "@/lib/spark-roster";
 
 type Scope = "both" | "brokerage" | "agents";
@@ -162,13 +163,14 @@ export function BrokerSetup() {
   return <main className="min-h-screen bg-[#0d1b2a] px-4 py-8 text-white sm:px-8">
     <div className="mx-auto max-w-3xl space-y-7">
       <nav className="flex flex-wrap gap-5 text-sm text-white/75"><Link href="/dashboard" className="underline">← Dashboard</Link><Link href="/dashboard/compliance" className="underline">Scan an ad manually</Link><Link href="/broker/discovery" className="underline">Discover public marketing</Link></nav>
-      <header><h1 className="text-3xl font-bold">Brokerage setup</h1><p className="mt-3 text-white/75">Add your brokerage and agent roster, then compare the saved count with your expected total. No developer account or API keys are needed.</p></header>
+      <header><h1 className="text-3xl font-bold">Brokerage setup</h1><p className="mt-3 text-white/75">Add your brokerage and agent roster, then compare the saved count with your expected total. Manual roster entry needs no API key. Automated MLS imports require approved access.</p></header>
       <section aria-labelledby="monitoring-heading" className="rounded-xl border border-blue-400/40 bg-blue-900/15 p-5">
         <h2 id="monitoring-heading" className="text-lg font-semibold">Public-ad search pilot</h2>
         <p className="mt-2 text-white/80">{saved?.brokerage ? `${saved.brokerage.discovery_agent_ids?.length ?? count} saved agents are selected for public searches.` : "Save your roster to select agents for public searches."} Each result shows what was found and what still needs review.</p>
         <Link href="/broker/discovery" className="mt-4 inline-flex min-h-11 items-center rounded-lg bg-blue-600 px-4 py-2 font-semibold">Start or review public searches</Link>
         <details className="mt-3 text-sm text-white/75"><summary className="min-h-11 cursor-pointer py-2">What these checks cover</summary><p>We look for publicly accessible marketing without requiring agents to connect social accounts. Private or unindexed posts can be missed. A saved roster, completed search, or empty result is not compliance clearance. Connected-account monitoring is unavailable.</p></details>
       </section>
+      <MlsAccessRequest brokerage={saved?.brokerage?.name || ""} />
       <section aria-labelledby="roster-status" className="rounded-xl border border-white/20 p-5">
         <h2 id="roster-status" className="text-lg font-semibold">Saved roster</h2>
         {loading ? <p role="status" className="mt-2">Loading saved setup…</p> : !saved ? <p className="mt-2">Saved setup could not be verified.</p> : !saved.brokerage ? <p className="mt-2">No brokerage setup saved yet. Enter the expected agent total below to check for missing roster entries.</p> : <>
