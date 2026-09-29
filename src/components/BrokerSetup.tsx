@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { matchSavedAgent } from "@/lib/roster-identity";
 import { MlsAccessRequest } from "@/components/MlsAccessRequest";
+import { mergeSubmittedProfiles, type SocialProfileMap, type SocialPlatform } from "@/lib/social-identity";
 import type { SparkRosterPreview } from "@/lib/spark-roster";
 
 type Scope = "both" | "brokerage" | "agents";
-type Agent = { id?: string; name: string; email: string; social_url: string };
+type Agent = { id?: string; name: string; email: string; social_url: string; social_profiles?: SocialProfileMap };
 type Setup = {
   brokerage: null | { id: string; name: string; expected_agents: number; scope: Scope; website?: string; location?: string; discovery_agent_ids?: string[] | null; discovery_location?: string | null };
   agents: Agent[];
@@ -50,6 +52,8 @@ export function BrokerSetup() {
   const [officeScope, setOfficeScope] = useState("jonesborough");
   const [knownAgents, setKnownAgents] = useState<Agent[]>([]);
   const [importPreview, setImportPreview] = useState<SparkRosterPreview | null>(null);
+  const [profileAgent, setProfileAgent] = useState("");
+  const [profileEdits, setProfileEdits] = useState<Record<string, Partial<Record<SocialPlatform, string | null>>>>({});
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -67,6 +71,7 @@ export function BrokerSetup() {
       setLocation(data.brokerage?.location || "");
       setKnownAgents(data.agents);
       setRoster(serializeAgents(data.agents));
+      setProfileEdits({});
       setDirty(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Setup could not be loaded. Try again.");
@@ -94,7 +99,12 @@ export function BrokerSetup() {
         try { url = new URL(website.trim()); } catch { throw new Error("Enter a complete brokerage website beginning with https://."); }
         if (!["http:", "https:"].includes(url.protocol)) throw new Error("Use an http or https brokerage website.");
       }
-      const agents = draftAgents();
+      const draft = draftAgents();
+      for (const id of Object.keys(profileEdits)) {
+        if (!draft.some(agent => agent.id === id)) throw new Error("An agent with social profile edits is no longer in the draft roster. Restore that entry or discard its profile edits before saving.");
+        mergeSubmittedProfiles({}, profileEdits[id], new Date().toISOString());
+      }
+      const agents = draft.map(agent => agent.id && profileEdits[agent.id] ? { ...agent, social_profiles: profileEdits[agent.id] } : agent);
       if (agents.length > expected_agents) throw new Error("Your roster has more agents than your expected total. Update the total or remove duplicate entries.");
       setSaving(true);
       const response = await fetch("/api/brokerage", {
@@ -108,6 +118,7 @@ export function BrokerSetup() {
       if (!check.ok || confirmed.error || !confirmed.brokerage) throw new Error("The save was sent, but we could not confirm it. Your edits are still here. Retry to confirm.");
       setSaved(confirmed);
       setKnownAgents(confirmed.agents);
+      setProfileEdits({});
       setDirty(false);
       setMessage("Brokerage and roster saved. Open public searches or your broker report for the next step.");
     } catch (err) {
@@ -117,7 +128,7 @@ export function BrokerSetup() {
 
   function draftAgents() {
     return parseAgents(roster).map((agent) => {
-      const known = knownAgents.find((item) => (agent.email && item.email.toLowerCase() === agent.email.toLowerCase()) || identity(item) === identity(agent));
+      const known = matchSavedAgent(agent, knownAgents);
       return known?.id ? { ...agent, id: known.id } : agent;
     });
   }
@@ -199,6 +210,30 @@ export function BrokerSetup() {
           <div><label htmlFor="agent-total" className="mb-2 block font-medium">How many agents should be included?</label><input id="agent-total" type="number" min="1" step="1" required value={expected} onChange={(e) => { edited(); setExpected(e.target.value); }} className={fieldClass} aria-describedby="agent-total-help" /><p id="agent-total-help" className="mt-2 text-sm text-white/65">Enter the expected count for the offices you are testing. The initial Jonesborough import contained 88 active agents; confirm against the current preview. Knoxville is outside this pilot.</p></div>
           <div><label htmlFor="review-scope" className="mb-2 block font-medium">What do you want to review?</label><select id="review-scope" value={scope} onChange={(e) => { edited(); setScope(e.target.value as Scope); }} className={fieldClass}><option value="both">Brokerage ads and individual agent ads</option><option value="brokerage">Brokerage ads only</option><option value="agents">Individual agent ads only</option></select><p className="mt-2 text-sm text-white/65">This records your intended scope. Public searches use the selected agents; brokerage-account collection is not enabled by this setting.</p></div>
           <div><label htmlFor="agent-roster" className="mb-2 block font-medium">Paste your agent roster</label><p id="roster-help" className="mb-2 text-sm text-white/70">One agent per line: Name, email, optional social URL. Names are required; email and social URL may be blank. If a name contains a comma, remove that comma. No invitations or emails are sent.</p><textarea id="agent-roster" value={roster} onChange={(e) => { edited(); setRoster(e.target.value); }} rows={8} aria-describedby="roster-help" placeholder={"Jane Smith, jane@example.com, https://www.facebook.com/example\nAlex Jones, alex@example.com"} className={`${fieldClass} resize-y`} /><p className="mt-2 text-sm text-white/65">Saving replaces your saved roster with the entries above. Remove a line to remove that roster entry.</p></div>
+          <section aria-labelledby="profiles-heading" className="space-y-3 rounded-lg border border-white/20 p-4">
+            <h3 id="profiles-heading" className="font-semibold">Agent social profiles</h3>
+            <p className="text-sm text-white/75">Record each saved agent’s Facebook, Instagram, X and LinkedIn profile. These are broker-supplied links: ownership is unverified and retrieval has not been checked. Recording links does not connect accounts or start monitoring.</p>
+            <p className="text-sm text-white/65">Save new roster entries first to edit their profiles. X and LinkedIn collection are not enabled. Existing single social links above remain separate.</p>
+            <label htmlFor="profile-agent" className="block font-medium">Saved agent</label>
+            <select id="profile-agent" value={profileAgent} onChange={event => setProfileAgent(event.target.value)} className={fieldClass}>
+              <option value="">Choose an agent</option>
+              {saved?.agents.filter(agent => agent.id).map(agent => <option key={agent.id} value={agent.id}>{agent.name}{agent.email ? ` (${agent.email})` : ""}</option>)}
+            </select>
+            {profileAgent && saved?.agents.some(agent => agent.id === profileAgent) && <>
+              {([['facebook','Facebook'],['instagram','Instagram'],['x','X'],['linkedin','LinkedIn']] as const).map(([platform,label]) => {
+                const stored = saved.agents.find(agent => agent.id === profileAgent)?.social_profiles?.[platform];
+                const patch = profileEdits[profileAgent];
+                const value = patch && Object.hasOwn(patch, platform) ? patch[platform] || "" : stored?.url || "";
+                return <div key={platform}>
+                  <label htmlFor={`profile-${platform}`} className="mb-1 block">{label} profile URL</label>
+                  <input id={`profile-${platform}`} type="url" maxLength={2000} value={value} placeholder="https://…" className={fieldClass} onChange={event => { edited(); const url = event.target.value; setProfileEdits(previous => ({...previous, [profileAgent]: {...previous[profileAgent], [platform]: url || null}})); }} />
+                  {stored && <p className="mt-1 break-words text-sm text-white/65">Saved link · ownership unverified · retrieval not checked</p>}
+                </div>;
+              })}
+              <p className="text-sm text-white/65">Clear a field to remove that platform link when you save brokerage and roster below.</p>
+            </>}
+            {Object.keys(profileEdits).length > 0 && <button type="button" className="min-h-11 underline" onClick={() => setProfileEdits({})}>Discard all social profile edits</button>}
+          </section>
           <div className="flex flex-wrap items-center gap-4"><button type="submit" className="min-h-11 rounded-lg bg-blue-600 px-5 py-3 font-semibold hover:bg-blue-500 disabled:opacity-50" disabled={busy}>{saving ? "Saving…" : "Save brokerage and roster"}</button>{dirty && <span className="text-sm text-amber-200">Unsaved edits — counts above show the saved roster.</span>}</div>
         </fieldset>
       </form>

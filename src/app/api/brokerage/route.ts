@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { validateBrokerage } from '@/lib/brokerage';
+import { preserveAgentProfiles } from '@/lib/social-identity';
 export async function GET() {
  const db=await createClient(); const {data:{user}}=await db.auth.getUser();
  if(!user)return NextResponse.json({error:'Sign in to manage your brokerage.'},{status:401});
@@ -10,14 +11,16 @@ export async function GET() {
 }
 export async function POST(request:NextRequest) {
  const origin=request.headers.get('origin'); const host=request.headers.get('x-forwarded-host')||request.headers.get('host');
- if(origin&&new URL(origin).host!==host)return NextResponse.json({error:'Invalid request origin.'},{status:403});
+ try { if(origin&&new URL(origin).host!==host)return NextResponse.json({error:'Invalid request origin.'},{status:403}); } catch { return NextResponse.json({error:'Invalid request origin.'},{status:403}); }
  const db=await createClient(); const {data:{user}}=await db.auth.getUser();
  if(!user)return NextResponse.json({error:'Sign in to manage your brokerage.'},{status:401});
  const body=await request.json().catch(()=>null);const validation=validateBrokerage(body);
  if(validation)return NextResponse.json({error:validation},{status:400});
- const agents=body.agents.map((a:{id?:string,name:string,email:string,social_url?:string})=>({id:a.id?.trim()||a.email.trim().toLowerCase()||a.name.trim().toLowerCase(),name:a.name.trim(),email:a.email.trim().toLowerCase(),social_url:a.social_url?.trim()||''}));
- const {data:existing,error:scopeError}=await db.from('eyeonads_brokerage_setups').select('discovery_agent_ids').eq('owner_id',user.id).maybeSingle();
+ const basicAgents=body.agents.map((a:{id?:string,name:string,email:string,social_url?:string})=>({id:a.id?.trim()||a.email.trim().toLowerCase()||a.name.trim().toLowerCase(),name:a.name.trim(),email:a.email.trim().toLowerCase(),social_url:a.social_url?.trim()||''}));
+ const {data:existing,error:scopeError}=await db.from('eyeonads_brokerage_setups').select('discovery_agent_ids,agents').eq('owner_id',user.id).maybeSingle();
  if(scopeError)return NextResponse.json({error:'Existing office scope could not be checked. Retry.'},{status:503});
+ let agents;
+ try { agents=preserveAgentProfiles(basicAgents,existing?.agents??[],body.agents.map((a:{social_profiles?:unknown})=>a.social_profiles),new Date().toISOString()); } catch { return NextResponse.json({error:'Check agent identifiers and social profile URLs. Use a matching platform URL or null to remove a profile.'},{status:400}); }
  if(existing?.discovery_agent_ids?.some((id:string)=>!agents.some((a:{id:string})=>a.id===id)))return NextResponse.json({error:'This removes agents from your selected search scope. Reset search scope to the entire saved roster first.'},{status:400});
  const {data,error}=await db.from('eyeonads_brokerage_setups').upsert({owner_id:user.id,name:body.name.trim(),expected_agents:body.expected_agents,scope:body.scope,website:body.website?.trim()||'',location:body.location?.trim()||'',agents,updated_at:new Date().toISOString()},{onConflict:'owner_id'}).select('*').single();
  if(error)return NextResponse.json({error:'Setup could not be saved. Your previous roster is unchanged; please retry.'},{status:503});
