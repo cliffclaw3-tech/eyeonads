@@ -56,11 +56,14 @@ export function BrokerSetup() {
   const [profileEdits, setProfileEdits] = useState<Record<string, Partial<Record<SocialPlatform, string | null>>>>({});
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState("");
+  const [needsSignIn, setNeedsSignIn] = useState(false);
   const [message, setMessage] = useState("");
 
   const load = useCallback(async () => {
+    setNeedsSignIn(false);
     try {
       const response = await fetch("/api/brokerage", { cache: "no-store" });
+      setNeedsSignIn(response.status === 401);
       const data: Setup = await response.json();
       if (!response.ok || data.error) throw new Error(data.error || "Setup could not be loaded. Try again.");
       setSaved(data);
@@ -84,11 +87,11 @@ export function BrokerSetup() {
     return () => { active = false; };
   }, [load]);
 
-  function edited() { setDirty(true); setMessage(""); setError(""); }
+  function edited() { setDirty(true); setMessage(""); setError(""); setNeedsSignIn(false); }
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
-    setError("");
+    setError(""); setNeedsSignIn(false);
     setMessage("");
     try {
       const expected_agents = Number(expected);
@@ -111,9 +114,11 @@ export function BrokerSetup() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name.trim(), expected_agents, scope, agents, website: website.trim(), location: location.trim() }),
       });
+      setNeedsSignIn(response.status === 401);
       const data = await response.json();
       if (!response.ok || data.error) throw new Error(data.error || "Setup could not be saved. Your edits are still here; try again.");
       const check = await fetch("/api/brokerage", { cache: "no-store" });
+      setNeedsSignIn(check.status === 401);
       const confirmed: Setup = await check.json();
       if (!check.ok || confirmed.error || !confirmed.brokerage) throw new Error("The save was sent, but we could not confirm it. Your edits are still here. Retry to confirm.");
       setSaved(confirmed);
@@ -134,11 +139,12 @@ export function BrokerSetup() {
   }
 
   async function importSpark() {
-    setError(""); setMessage("");
+    setError(""); setNeedsSignIn(false); setMessage("");
     try {
       const current = draftAgents();
       setImporting(true);
       const response = await fetch("/api/brokerage/import-spark", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ office_scope: officeScope }) });
+      setNeedsSignIn(response.status === 401);
       const preview: SparkRosterPreview & { error?: string } = await response.json();
       if (!response.ok || preview.error) throw new Error(preview.error || "Spark import could not be completed. Your saved roster is unchanged.");
       const merged = [...current];
@@ -155,9 +161,10 @@ export function BrokerSetup() {
   }
 
   async function saveSearchScope(agentIds: string[] | null, searchLocation: string | null = null) {
-    setSaving(true); setError(""); setMessage("");
+    setSaving(true); setError(""); setNeedsSignIn(false); setMessage("");
     try {
       const response = await fetch("/api/brokerage/discovery-scope", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agent_ids: agentIds, location: searchLocation }) });
+      setNeedsSignIn(response.status === 401);
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Office scope could not be saved.");
       setSaved(previous => previous?.brokerage ? { ...previous, brokerage: { ...previous.brokerage, discovery_agent_ids: result.agent_ids, discovery_location: result.location } } : previous);
@@ -192,7 +199,7 @@ export function BrokerSetup() {
           {count > 0 && <details className="mt-4"><summary className="min-h-11 cursor-pointer py-2 font-medium">Review {count} saved agent names</summary><ul className="max-h-96 space-y-2 overflow-y-auto">{saved.agents.map((agent, index) => <li key={agent.id || index} className="break-words rounded-lg bg-white/5 p-3"><span className="font-medium">{agent.name}</span>{agent.email && <span className="block text-sm text-white/70">{agent.email}</span>}{agent.social_url && <span className="block text-sm text-white/60">Social link recorded · not connected</span>}</li>)}</ul></details>}
         </>}
       </section>
-      {error && <div role="alert" className="rounded-lg border border-red-400/40 bg-red-900/20 p-4">{error}{!saved && <button onClick={() => { setLoading(true); setError(""); void load(); }} disabled={busy} className="ml-3 min-h-11 underline">Retry loading</button>} <Link href="/login" className="ml-3 underline">Sign in again</Link></div>}
+      {error && <div role="alert" className="rounded-lg border border-red-400/40 bg-red-900/20 p-4">{error}{!saved && <button onClick={() => { setLoading(true); setError(""); setNeedsSignIn(false); void load(); }} disabled={busy} className="ml-3 min-h-11 underline">Retry loading</button>} {needsSignIn && <Link href="/login" className="ml-3 underline">Sign in again</Link>}</div>}
       {message && <p role="status" className="rounded-lg border border-green-500/40 p-4">{message}</p>}
       <form onSubmit={save} className="space-y-5 rounded-xl border border-white/20 p-5 sm:p-6">
         <h2 className="text-xl font-semibold">Your setup</h2>
