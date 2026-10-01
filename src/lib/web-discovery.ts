@@ -3,10 +3,12 @@ import { discoveredSchema, type DiscoveredAd } from './discovered-ad-contract';
 
 export type DiscoveryInput={agent_name:string;brokerage:string;brokerage_website?:string;location?:string;known_profile?:string;alternatives?:{excluded_hosts:string[];excluded_urls:string[]}};
 export function discoveryFailureCode(error:unknown){
-  const value=error as {status?:unknown;name?:unknown;code?:unknown};
+  const value=error as {status?:unknown;name?:unknown;code?:unknown;error?:{code?:unknown}};
   const status=typeof value?.status==='number'&&Number.isInteger(value.status)&&value.status>=400&&value.status<=599?value.status:undefined;
-  const providerCode=typeof value?.code==='string'&&['model_not_found','invalid_api_key','insufficient_quota','unsupported_parameter','invalid_value','rate_limit_exceeded'].includes(value.code)?value.code:undefined;
-  return {...(providerCode?{provider_code:providerCode}:{}),code:status===401||status===403?'provider_auth':status===429?'provider_rate_limit':status&&status>=500?'provider_unavailable':status?'provider_request_rejected':value?.name==='SyntaxError'?'invalid_json':value?.name==='APIConnectionTimeoutError'?'provider_timeout':'invalid_or_incomplete_response',...(status?{http_status:status}:{})};
+  const quotaCodes=['insufficient_quota','credit_balance_exhausted','organization_spend_limit_exceeded','project_spend_limit_exceeded','organization_usage_limit_exceeded'];
+  const rawCode=value?.code??value?.error?.code;
+  const providerCode=typeof rawCode==='string'&&[...quotaCodes,'model_not_found','invalid_api_key','unsupported_parameter','invalid_value','rate_limit_exceeded','slow_down'].includes(rawCode)?rawCode:undefined;
+  return {...(providerCode?{provider_code:providerCode}:{}),code:providerCode&&quotaCodes.includes(providerCode)?'provider_quota':status===401||status===403?'provider_auth':status===429?'provider_rate_limit':status&&status>=500?'provider_unavailable':status?'provider_request_rejected':value?.name==='SyntaxError'?'invalid_json':value?.name==='APIConnectionTimeoutError'?'provider_timeout':'invalid_or_incomplete_response',...(status?{http_status:status}:{})};
 }
 export function decodeSearchEnvelope(raw:unknown){
   const response=typeof raw==='string'&&raw.length<2_000_000?JSON.parse(raw):raw;
@@ -42,7 +44,12 @@ export async function discoverMarketing(input:DiscoveryInput){
   const passes=await Promise.allSettled([searchPass(input,4,readable),searchPass(input,2)]);
   const completed=passes.flatMap(pass=>pass.status==='fulfilled'?[pass.value]:[]);
   for(let index=0;index<passes.length;index++){const pass=passes[index];if(pass.status==='rejected')console.error('eyeonads_discovery_pass_failure',{pass:index===0?'readable':'unrestricted',...discoveryFailureCode(pass.reason)});}
-  if(!completed.length)throw Error('Search incomplete');
+  if(!completed.length){
+    const codes=passes.flatMap(pass=>pass.status==='rejected'?[discoveryFailureCode(pass.reason).code]:[]);
+    const discoveryCode=codes.includes('provider_quota')?'provider_quota':codes.includes('provider_rate_limit')?'provider_rate_limit':'invalid_or_incomplete_response';
+    const message=discoveryCode==='provider_quota'?'Search incomplete: AI account quota or credits are exhausted. The account owner must check billing and limits.':discoveryCode==='provider_rate_limit'?'Search incomplete: the AI service rejected requests with a usage limit. Check account limits before retrying.':'Search incomplete';
+    throw Object.assign(new Error(message),{discoveryCode});
+  }
   const candidates:DiscoveredAd[]=[];
   for(const pass of completed)for(const ad of pass.found.candidates)if(!candidates.some(item=>item.url===ad.url))candidates.push(ad);
   return {incompletePasses:2-completed.length,found:{candidates:candidates.slice(0,6),identity_note:completed.map(pass=>pass.found.identity_note).join(' '),coverage_gaps:[...completed.flatMap(pass=>pass.found.coverage_gaps),...(completed.length<2?['One public discovery pass failed; coverage is reduced.']:[])]},openedURLs:new Set(completed.flatMap(pass=>[...pass.openedURLs])),searchQueries:completed.flatMap(pass=>pass.searchQueries)};

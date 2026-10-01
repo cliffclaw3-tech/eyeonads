@@ -46,3 +46,32 @@ test('discovery diagnostics classify HTTP errors without retaining provider text
  }
  assert.equal(s.discoveryFailureCode({status:'SECRET',name:'SyntaxError'}).code,'invalid_json');
 });
+
+test('production simulation: two rate-limited passes preserve the actionable cause',async()=>{
+ const s=subject(()=>{throw {status:429,message:'PRIVATE_PROVIDER_SECRET'};});
+ await assert.rejects(s.discoverMarketing({agent_name:'Agent',brokerage:'Firm'}),error=>{
+  assert.equal(error.discoveryCode,'provider_rate_limit');
+  assert.match(error.message,/usage limit/);
+  assert.ok(!error.message.includes('PRIVATE_PROVIDER_SECRET'));
+  return true;
+ });
+ assert.equal(s.requests().length,2);
+});
+
+test('exhausted quota is distinguished from temporary throttling without leaking provider text',async()=>{
+ const s=subject(()=>{throw {status:429,error:{code:'insufficient_quota'},message:'PRIVATE_PROVIDER_SECRET'};});
+ await assert.rejects(s.discoverMarketing({agent_name:'Agent',brokerage:'Firm'}),error=>{
+  assert.equal(error.discoveryCode,'provider_quota');
+  assert.match(error.message,/account quota/);
+  assert.ok(!error.message.includes('PRIVATE_PROVIDER_SECRET'));
+  return true;
+ });
+ assert.equal(s.requests().length,2);
+});
+
+test('one rate-limited pass retains successful evidence and explicitly marks reduced coverage',async()=>{
+ const s=subject(request=>{if(request.body.tools[0].filters)throw {status:429};return envelope;});
+ const result=await s.discoverMarketing({agent_name:'Agent',brokerage:'Firm'});
+ assert.equal(result.incompletePasses,1);
+ assert.match(result.found.coverage_gaps.join(' '),/coverage is reduced/);
+});

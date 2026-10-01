@@ -104,11 +104,12 @@ export async function runDiscovery(db: SupabaseClient, ownerId: string, setup: S
   const saved=await db.from('eyeonads_discovery_reviews').update({status:'complete',report:presentation.report,sources:presentation.sources,evidence,searched_at:new Date().toISOString(),error:null}).eq('owner_id',ownerId).eq('agent_id',agent.id).eq('run_id',runId).select('agent_id,agent_name,status,report,sources,searched_at,error,evidence').single();
   if(saved.error||!saved.data)throw Error('Save failed');
   return saved.data;
- }catch{
+ }catch(error){
   // Only static stages and a generated run ID: never log provider messages,
   // source content, identities, credentials or database response payloads.
   console.error('eyeonads_discovery_failure',{run_id:runId,stage,outcome:'failed'});
-  const message='Public search did not finish or could not be saved. No new review is confirmed. Retry this agent.';
+  const code=stage==='public_discovery'?(error as {discoveryCode?:unknown})?.discoveryCode:undefined;
+  const message=code==='provider_quota'?'Public search could not run because the AI account quota or credits are exhausted. Ask the account owner to check billing and limits, then retry. No new review is confirmed.':code==='provider_rate_limit'?'Public search was blocked by an AI service usage limit. Ask the account owner to check limits before retrying. No new review is confirmed.':'Public search did not finish or could not be saved. No new review is confirmed. Retry this agent.';
   await db.from('eyeonads_discovery_reviews').update({status:'failed',error:message}).eq('owner_id',ownerId).eq('agent_id',agent.id).eq('run_id',runId);
   throw new Error(message);
  }
