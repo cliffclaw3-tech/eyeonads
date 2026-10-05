@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { fetchSparkRoster } from "@/lib/spark-roster";
+import { isBroker } from '@/lib/broker-access';
 
 export const maxDuration = 120;
 
@@ -13,6 +14,7 @@ export async function POST(request: NextRequest) {
   const db = await createClient();
   const { data: { user } } = await db.auth.getUser();
   if (!user) return NextResponse.json({ error: "Sign in before importing a roster." }, { status: 401 });
+  if (!await isBroker(db,user)) return NextResponse.json({ error: 'Broker access required.' }, { status: 403 });
   if (!process.env.EYEONADS_SPARK_OWNER_ID || user.id !== process.env.EYEONADS_SPARK_OWNER_ID) return NextResponse.json({ error: "Spark import is available only to the authorized private pilot account." }, { status: 403 });
   const { data: setup, error } = await db.from("eyeonads_brokerage_setups").select("name").eq("owner_id", user.id).maybeSingle();
   if (error) return NextResponse.json({ error: "Your saved brokerage could not be checked. Retry without changing your roster." }, { status: 503 });

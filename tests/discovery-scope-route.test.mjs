@@ -2,7 +2,7 @@ import {test} from 'node:test';import assert from 'node:assert/strict';import fs
 function route({user={id:'owner',app_metadata:{eyeonads_pilot:true}},job=null}={}) {
  const updates=[];const db={auth:{getUser:async()=>({data:{user}})},from:table=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:table==='eyeonads_brokerage_setups'?{agents:[{id:'jones-1'},{id:'other-1'}]}:job})})}),update:row=>{updates.push(row);return {eq:()=>({select:()=>({single:async()=>({data:{discovery_agent_ids:row.discovery_agent_ids,discovery_location:row.discovery_location}})})})};}})};
  const mod={exports:{}};const js=ts.transpileModule(fs.readFileSync('src/app/api/brokerage/discovery-scope/route.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
- vm.runInNewContext(js,{module:mod,exports:mod.exports,require:name=>name==='next/server'?{NextResponse:{json:(body,options)=>({body,status:options.status})}}:name==='@/lib/supabase/server'?{createClient:async()=>db}:name==='@/lib/discovery-jobs'?{sameOrigin:r=>r.originOK}:null});
+ vm.runInNewContext(js,{module:mod,exports:mod.exports,require:name=>name==='next/server'?{NextResponse:{json:(body,options)=>({body,status:options.status})}}:name==='@/lib/supabase/server'?{createClient:async()=>db}:name==='@/lib/broker-access'?{isBroker:async()=>true}:name==='@/lib/discovery-jobs'?{sameOrigin:r=>r.originOK}:null});
  return {updates,post:(body,originOK=true)=>mod.exports.POST({originOK,json:async()=>body})};
 }
 test('office scope refuses unauthenticated, nonpilot and cross-origin changes',async()=>{

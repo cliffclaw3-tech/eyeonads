@@ -1,6 +1,13 @@
 import Link from "next/link";
+import { redirect } from 'next/navigation';
+import { createClient } from '@/lib/supabase/server';
+import { isBroker } from '@/lib/broker-access';
 
-export default function ConnectPage() {
+export default async function ConnectPage() {
+  const db = await createClient();
+  const { data: { user } } = await db.auth.getUser();
+  if (!user) redirect('/login');
+  if (!await isBroker(db, user)) redirect('/dashboard/compliance');
   return (
     <main className="min-h-screen bg-[#0d1b2a] px-4 py-10 text-white sm:px-8">
       <div className="mx-auto max-w-2xl space-y-6">

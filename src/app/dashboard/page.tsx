@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/types";
+import { isBroker } from "@/lib/broker-access";
 
 type ComplianceScan = Database["public"]["Tables"]["compliance_scans"]["Row"];
 
@@ -30,6 +31,7 @@ export default async function DashboardPage() {
   if (!user) {
     redirect("/login");
   }
+  const broker = await isBroker(supabase, user);
 
   const { data: profile } = await supabase
     .from("user_profiles")
@@ -85,9 +87,11 @@ export default async function DashboardPage() {
             {[
               { href: "/dashboard", label: "Overview" },
               { href: "/dashboard/compliance", label: "Compliance" },
-              { href: "/dashboard/connect", label: "Ad Accounts" },
-              { href: "/broker", label: "Brokerage setup" },
-              { href: "/broker/report", label: "Broker report" },
+              ...(broker ? [
+                { href: "/dashboard/connect", label: "Ad Accounts" },
+                { href: "/broker", label: "Brokerage setup" },
+                { href: "/broker/report", label: "Broker report" },
+              ] : []),
             ].map((link) => (
               <Link
                 key={link.href}
@@ -113,6 +117,7 @@ export default async function DashboardPage() {
           </p>
         </div>
 
+        {broker && <>
         {/* Beta boundary */}
         <div className="bg-white/5 border border-white/10 rounded-xl p-6">
           <div className="flex flex-wrap gap-3 items-center justify-between mb-4">
@@ -129,6 +134,7 @@ export default async function DashboardPage() {
           <p className="text-white/70 text-sm">Review possible issues found in public marketing, see which agents and ads were checked, and identify coverage gaps. Run a report on demand or choose daily or weekly checks.</p>
           <Link href="/broker/report" className="mt-4 inline-flex min-h-11 items-center rounded-lg bg-blue-600 px-5 py-3 font-semibold hover:bg-blue-500">Open broker report</Link>
         </div>
+        </>}
 
         {/* Compliance Status */}
         <div className="bg-white/5 border border-white/10 rounded-xl p-6">
@@ -188,12 +194,12 @@ export default async function DashboardPage() {
             >
               🛡️ Run Compliance Scan
             </Link>
-            <Link
+            {broker && <Link
               href="/dashboard/connect"
               className="bg-white/10 hover:bg-white/20 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition"
             >
               📘 Ad connections unavailable
-            </Link>
+            </Link>}
             <Link
               href="/dashboard/compliance"
               className="bg-white/10 hover:bg-white/20 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition"
@@ -203,6 +209,7 @@ export default async function DashboardPage() {
           </div>
         </div>
 
+        {broker && <>
         {/* Beta support boundary */}
         <div className="bg-white/5 border border-white/10 rounded-xl p-6">
           <h2 className="text-lg font-semibold text-white mb-2">
@@ -217,6 +224,7 @@ export default async function DashboardPage() {
             </p>
           </div>
         </div>
+        </>}
       </main>
     </div>
   );

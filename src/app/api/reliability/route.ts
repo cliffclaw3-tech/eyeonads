@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { sameOrigin } from '@/lib/discovery-jobs';
+import { isBroker } from '@/lib/broker-access';
 export const runtime = 'nodejs';
 async function session() {
   const db = await createClient();
   const { data: { user }, error } = await db.auth.getUser();
   if (error || !user) return { response: NextResponse.json({ error: 'Sign in to view monthly reliability checks.' }, { status: 401 }) };
+  if (!await isBroker(db,user)) return { response: NextResponse.json({ error: 'Broker access required.' }, { status: 403 }) };
   if (!user.app_metadata?.eyeonads_pilot) return { response: NextResponse.json({ error: 'Monthly reliability checks are available to invited brokerage pilots.' }, { status: 403 }) };
   return { db, user };
 }

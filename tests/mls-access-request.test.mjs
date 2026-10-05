@@ -20,7 +20,7 @@ function route(user={id:'synthetic',user_metadata:{other:'retained'}},fail=false
    return {data:{user:{...user,user_metadata:{...user.user_metadata,...payload.data}}}};
   }
  }};
- const api=load('app/api/brokerage/mls-access-request/route.ts',{'next/server':{NextResponse:{json:(body,options)=>({body,...options})}},'@/lib/supabase/server':{createClient:async()=>db},'@/lib/mls-access-request':model});
+ const api=load('app/api/brokerage/mls-access-request/route.ts',{'next/server':{NextResponse:{json:(body,options)=>({body,...options})}},'@/lib/supabase/server':{createClient:async()=>db},'@/lib/broker-access':{isBroker:async()=>true},'@/lib/mls-access-request':model});
  return {...api,written:()=>written};
 }
 const request=(body=input,origin='https://eyeonads.com')=>({headers:{get:n=>({origin,host:'eyeonads.com'})[n]||null},text:async()=>JSON.stringify(body)});

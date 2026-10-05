@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { parseMlsAccessRequest } from '@/lib/mls-access-request';
+import { isBroker } from '@/lib/broker-access';
 const reply = (data: unknown, status = 200) => NextResponse.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
 export async function GET() {
   const db = await createClient();
   const { data: { user }, error } = await db.auth.getUser();
   if (error || !user) return reply({ error: 'Sign in to view your MLS request.' }, 401);
+  if (!await isBroker(db,user)) return reply({ error: 'Broker access required.' }, 403);
   const saved = user.user_metadata?.eyeonads_mls_request;
   if (!saved) return reply({ request: null });
   try { return reply({ request: parseMlsAccessRequest(saved) }); }
@@ -19,6 +21,7 @@ export async function POST(req: NextRequest) {
   const db = await createClient();
   const { data: { user }, error } = await db.auth.getUser();
   if (error || !user) return reply({ error: 'Sign in to save your MLS request.' }, 401);
+  if (!await isBroker(db,user)) return reply({ error: 'Broker access required.' }, 403);
   let request;
   try {
     const text = await req.text();

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { discoveryJobProgress, sameOrigin } from '@/lib/discovery-jobs';
+import { isBroker } from '@/lib/broker-access';
 
 const reply = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 
@@ -9,6 +10,7 @@ async function handle(request: Request, action: 'read' | 'start' | 'control') {
   const db = await createClient();
   const { data: { user } } = await db.auth.getUser();
   if (!user) return reply({ error: 'Sign in to manage public searches.' }, 401);
+  if (!await isBroker(db,user)) return reply({ error: 'Broker access required.' }, 403);
   if (!user.app_metadata?.eyeonads_pilot) return reply({ error: 'Public discovery is enabled for invited brokerage pilots only.' }, 403);
   try {
     if (action === 'start') {

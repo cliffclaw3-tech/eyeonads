@@ -31,6 +31,7 @@ test('dashboard reads only the signed-in user’s persisted scans in newest-firs
       if (name === 'next/navigation') return { redirect: () => { throw Error('unexpected redirect'); } };
       if (name === 'next/link') return ({ children }) => children;
       if (name === '@/lib/supabase/server') return { createClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: 'signed-in-user', email: 'fixture@example.invalid' } } }) }, from: query }) };
+      if (name === '@/lib/broker-access') return { isBroker: async () => false };
       if (name === 'react/jsx-runtime') return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
       throw Error(`Unexpected import: ${name}`);
     },

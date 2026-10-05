@@ -15,7 +15,7 @@ function setup({user={id:'synthetic-owner'},readError=false,writeError=false,sco
   return {select:()=>({eq:(field,value)=>{filters.push([field,value]);return {maybeSingle:async()=>({data:{agents:[old],discovery_agent_ids:scope},error:readError?{}:null})};}}),upsert:payload=>{written=payload;return {select:()=>({single:async()=>({data:payload,error:writeError?{}:null})})};}};
  }};
  const exports={};
- const stubs={'next/server':{NextResponse:{json:(body,options)=>({body,...options})}},'@/lib/supabase/server':{createClient:async()=>db},'@/lib/brokerage':{validateBrokerage},'@/lib/social-identity':model};
+ const stubs={'next/server':{NextResponse:{json:(body,options)=>({body,...options})}},'@/lib/supabase/server':{createClient:async()=>db},'@/lib/broker-access':{isBroker:async()=>true},'@/lib/brokerage':{validateBrokerage},'@/lib/social-identity':model};
  vm.runInNewContext(ts.transpileModule(fs.readFileSync(new URL('../src/app/api/brokerage/route.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:name=>stubs[name],URL,Date});
  return {...exports,written:()=>written,filters};
 }

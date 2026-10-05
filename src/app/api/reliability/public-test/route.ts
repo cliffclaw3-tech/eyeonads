@@ -4,6 +4,7 @@ import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { sameOrigin } from '@/lib/discovery-jobs';
 import { publicPostIdentity } from '@/lib/reliability-canary/engine';
 import { createCanaryDependencies } from '@/lib/reliability-canary/adapters';
+import { isBroker } from '@/lib/broker-access';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
@@ -15,6 +16,7 @@ async function session() {
   const db = await createClient();
   const { data: { user }, error } = await db.auth.getUser();
   if (error || !user) return { response: response({ error: 'Sign in to set up your public test.' }, 401) };
+  if (!await isBroker(db,user)) return { response: response({ error: 'Broker access required.' }, 403) };
   if (!user.app_metadata?.eyeonads_pilot) return { response: response({ error: 'Public test setup is available to invited brokerage pilots.' }, 403) };
   const setup = await db.from('eyeonads_brokerage_setups').select('name,location,discovery_location').eq('owner_id', user.id).maybeSingle();
   if (setup.error) return { response: response({ error: 'Your saved brokerage could not be loaded. Retry shortly.' }, 503) };

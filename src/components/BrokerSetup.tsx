@@ -6,16 +6,20 @@ import { matchSavedAgent } from "@/lib/roster-identity";
 import { MlsAccessRequest } from "@/components/MlsAccessRequest";
 import { mergeSubmittedProfiles, type SocialProfileMap, type SocialPlatform } from "@/lib/social-identity";
 import type { SparkRosterPreview } from "@/lib/spark-roster";
+import { PublicBrokerageFinder } from "@/components/PublicBrokerageFinder";
+import type { PublicAgent, PublicOffice } from "@/lib/public-brokerage-preview";
 
 type Scope = "both" | "brokerage" | "agents";
-type Agent = { id?: string; name: string; email: string; social_url: string; social_profiles?: SocialProfileMap };
+type Agent = { id?: string; name: string; email: string; social_url: string; office?: string; social_profiles?: SocialProfileMap };
 type Setup = {
-  brokerage: null | { id: string; name: string; expected_agents: number; scope: Scope; website?: string; location?: string; discovery_agent_ids?: string[] | null; discovery_location?: string | null };
+  brokerage: null | { id: string; name: string; expected_agents: number; scope: Scope; website?: string; location?: string; offices?: PublicOffice[]; discovery_agent_ids?: string[] | null; discovery_location?: string | null };
   agents: Agent[];
+  spark_import_available?: boolean;
+  public_lookup_available?: boolean;
   error?: string;
 };
 function serializeAgents(agents: Agent[]) {
-  return agents.map((agent) => [agent.name.replaceAll(",", " "), agent.email || "", agent.social_url || ""].join(", ").replace(/,\s*$/, "")).join("\n");
+  return agents.map((agent) => [agent.name.replaceAll(",", " "), agent.email || "", agent.social_url || "", agent.office || ""].join(", ").replace(/,\s*$/, "")).join("\n");
 }
 const identity = (agent: Agent) => agent.name.replaceAll(",", " ").trim().replace(/\s+/g, " ").toLowerCase();
 const fieldClass = "w-full rounded-lg border border-white/25 bg-white/10 px-3 py-3 text-white disabled:opacity-50";
@@ -24,8 +28,9 @@ function parseAgents(text: string): Agent[] {
   const seen = new Set<string>();
   return text.split("\n").filter((line) => line.trim()).map((line, index) => {
     const parts = line.split(",").map((part) => part.trim());
-    const [name, email = "", social_url = ""] = parts;
-    if (!name || parts.length > 3) throw new Error(`Line ${index + 1}: use Name, email, optional social URL. Keep commas out of names.`);
+    const [name, email = "", social_url = "", ...officeParts] = parts;
+    const office = officeParts.join(", ");
+    if (!name) throw new Error(`Line ${index + 1}: use Name, email, optional social URL, optional office. Keep commas out of names.`);
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error(`Line ${index + 1}: check the email address.`);
     if (email && seen.has(email.toLowerCase())) throw new Error(`Line ${index + 1}: that email is already in the roster.`);
     if (email) seen.add(email.toLowerCase());
@@ -34,14 +39,17 @@ function parseAgents(text: string): Agent[] {
       try { url = new URL(social_url); } catch { throw new Error(`Line ${index + 1}: enter a complete social URL beginning with https://.`); }
       if (!["https:", "http:"].includes(url.protocol)) throw new Error(`Line ${index + 1}: use an http or https social URL.`);
     }
-    return { name, email, social_url };
+    return { name, email, social_url, office };
   });
 }
 
 export function BrokerSetup() {
   const [saved, setSaved] = useState<Setup | null>(null);
-  const [name, setName] = useState("Greater Impact Realty");
-  const [expected, setExpected] = useState("88");
+  const [name, setName] = useState("");
+  const [expected, setExpected] = useState("");
+  const [offices, setOffices] = useState<PublicOffice[]>([]);
+  const [manualOfficeName, setManualOfficeName] = useState("");
+  const [manualOfficeLocation, setManualOfficeLocation] = useState("");
   const [website, setWebsite] = useState("");
   const [location, setLocation] = useState("");
   const [scope, setScope] = useState<Scope>("both");
@@ -67,8 +75,9 @@ export function BrokerSetup() {
       const data: Setup = await response.json();
       if (!response.ok || data.error) throw new Error(data.error || "Setup could not be loaded. Try again.");
       setSaved(data);
-      setName(data.brokerage?.name || "Greater Impact Realty");
-      setExpected(data.brokerage ? String(data.brokerage.expected_agents) : "88");
+      setName(data.brokerage?.name || "");
+      setExpected(data.brokerage ? String(data.brokerage.expected_agents) : "");
+      setOffices(data.brokerage?.offices || []);
       setScope(data.brokerage?.scope || "both");
       setWebsite(data.brokerage?.website || "");
       setLocation(data.brokerage?.location || "");
@@ -112,7 +121,7 @@ export function BrokerSetup() {
       setSaving(true);
       const response = await fetch("/api/brokerage", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), expected_agents, scope, agents, website: website.trim(), location: location.trim() }),
+        body: JSON.stringify({ name: name.trim(), expected_agents, scope, agents, offices, website: website.trim(), location: location.trim() }),
       });
       setNeedsSignIn(response.status === 401);
       const data = await response.json();
@@ -134,8 +143,25 @@ export function BrokerSetup() {
   function draftAgents() {
     return parseAgents(roster).map((agent) => {
       const known = matchSavedAgent(agent, knownAgents);
-      return known?.id ? { ...agent, id: known.id } : agent;
+      return known?.id ? { ...agent, id: known.id, office: agent.office || known.office || "" } : agent;
     });
+  }
+
+  function applyPublicSuggestions(selectedOffices: PublicOffice[], selectedAgents: PublicAgent[]) {
+    try {
+      const current = draftAgents();
+      const merged = [...current];
+      for (const candidate of selectedAgents) {
+        const existing = merged.findIndex(agent => identity(agent) === candidate.name.toLowerCase());
+        if (existing >= 0) merged[existing] = { ...merged[existing], office: candidate.office };
+        else merged.push({ name: candidate.name, email: "", social_url: "", office: candidate.office });
+      }
+      setOffices(previous => [...previous, ...selectedOffices.filter(candidate => !previous.some(office => `${office.name}|${office.location}`.toLowerCase() === `${candidate.name}|${candidate.location}`.toLowerCase()))]);
+      setRoster(serializeAgents(merged));
+      if (!expected || Number(expected) < merged.length) setExpected(String(Math.max(merged.length, 1)));
+      setDirty(true);
+      setMessage(`Added ${selectedOffices.length} office${selectedOffices.length === 1 ? "" : "s"} and ${selectedAgents.length} selected agent${selectedAgents.length === 1 ? "" : "s"} to your draft. Review and save to confirm.`);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Suggestions could not be added."); }
   }
 
   async function importSpark() {
@@ -181,7 +207,7 @@ export function BrokerSetup() {
   return <main className="min-h-screen bg-[#0d1b2a] px-4 py-8 text-white sm:px-8">
     <div className="mx-auto max-w-3xl space-y-7">
       <nav className="flex flex-wrap gap-5 text-sm text-white/75"><Link href="/dashboard" className="underline">← Dashboard</Link><Link href="/dashboard/compliance" className="underline">Scan an ad manually</Link><Link href="/broker/discovery" className="underline">Discover public marketing</Link></nav>
-      <header><h1 className="text-3xl font-bold">Brokerage setup</h1><p className="mt-3 text-white/75">Add your brokerage and agent roster, then compare the saved count with your expected total. Manual roster entry needs no API key. Automated MLS imports require approved access.</p></header>
+      <header><h1 className="text-3xl font-bold">Brokerage setup</h1><p className="mt-3 text-white/75">Enter your brokerage and area. We can suggest public offices and agents, then you choose the offices you manage and confirm the roster. No MLS or AI key is needed.</p></header>
       <section aria-labelledby="monitoring-heading" className="rounded-xl border border-blue-400/40 bg-blue-900/15 p-5">
         <h2 id="monitoring-heading" className="text-lg font-semibold">Public-ad search pilot</h2>
         <p className="mt-2 text-white/80">{saved?.brokerage ? `${saved.brokerage.discovery_agent_ids?.length ?? count} saved agents are selected for public searches.` : "Save your roster to select agents for public searches."} Each result shows what was found and what still needs review.</p>
@@ -193,7 +219,7 @@ export function BrokerSetup() {
         <h2 id="roster-status" className="text-lg font-semibold">Saved roster</h2>
         {loading ? <p role="status" className="mt-2">Loading saved setup…</p> : !saved ? <p className="mt-2">Saved setup could not be verified.</p> : !saved.brokerage ? <p className="mt-2">No brokerage setup saved yet. Enter the expected agent total below to check for missing roster entries.</p> : <>
           <p className="mt-2 text-xl font-semibold">{count} of {expectedCount} expected agents listed</p>
-          <p className="mt-2 text-white/75">{missing ? `${missing} agent${missing === 1 ? " is" : "s are"} still missing compared with your full brokerage estimate. This is separate from the selected office search scope.` : "The roster count matches your expected total. Review the names below to confirm the correct people are listed."}</p>
+          <p className="mt-2 text-white/75">{missing ? `${missing} agent${missing === 1 ? " is" : "s are"} still missing compared with your estimate for the offices you oversee. This is separate from the selected search scope.` : "The roster count matches your expected total. Review the names below to confirm the correct people are listed."}</p>
           <p className="mt-2 font-semibold">Search scope: {saved.brokerage.discovery_agent_ids?.length ?? count} saved agents{saved.brokerage.discovery_agent_ids ? " in the selected office subset" : " (entire roster)"}.</p>{saved.brokerage.discovery_location && <p className="mt-2 text-white/80">Search area: {saved.brokerage.discovery_location}</p>}{saved.brokerage.discovery_agent_ids && <button type="button" disabled={busy} className="min-h-11 underline" onClick={() => void saveSearchScope(null)}>Use entire saved roster for searches</button>}
           <p className="mt-2 text-white/65">This checks your roster count only. Open the broker report to see which agents have advertising text assessed.</p>
           {count > 0 && <details className="mt-4"><summary className="min-h-11 cursor-pointer py-2 font-medium">Review {count} saved agent names</summary><ul className="max-h-96 space-y-2 overflow-y-auto">{saved.agents.map((agent, index) => <li key={agent.id || index} className="break-words rounded-lg bg-white/5 p-3"><span className="font-medium">{agent.name}</span>{agent.email && <span className="block text-sm text-white/70">{agent.email}</span>}{agent.social_url && <span className="block text-sm text-white/60">Social link recorded · not connected</span>}</li>)}</ul></details>}
@@ -203,20 +229,23 @@ export function BrokerSetup() {
       {message && <p role="status" className="rounded-lg border border-green-500/40 p-4">{message}</p>}
       <form onSubmit={save} className="space-y-5 rounded-xl border border-white/20 p-5 sm:p-6">
         <h2 className="text-xl font-semibold">Your setup</h2>
-        <div className="rounded-lg border border-white/20 p-4">
+        {saved?.spark_import_available && <div className="rounded-lg border border-white/20 p-4">
           <h3 className="font-semibold">Import your Spark roster</h3>
           <p className="mt-2 text-sm text-white/70">Private pilot import for Greater Impact Realty. Save the brokerage name first. Import adds active, visible feed agents to this draft, retains existing entries, and never saves automatically. Review the names and expected total before saving. Allow up to two minutes.</p>
           <label htmlFor="spark-office" className="mt-3 block font-medium">Office to import</label><select id="spark-office" value={officeScope} onChange={(event) => { setOfficeScope(event.target.value); setImportPreview(null); }} disabled={busy} className={fieldClass}><option value="jonesborough">Jonesborough pilot</option><option value="current-feed">All offices in current feed (excluding Knoxville)</option></select>
           <button type="button" onClick={() => void importSpark()} disabled={busy || !saved?.brokerage} className="mt-3 min-h-11 rounded-lg border border-blue-400/60 px-4 py-2 font-semibold disabled:opacity-50">{importing ? "Reading Spark roster…" : "Import Spark roster"}</button>
           {importPreview && <div role="status" className="mt-4 space-y-2 text-sm text-white/80"><p>{importPreview.total} agents found in {importPreview.source}. {importPreview.complete_feed ? "All requested feed pages were read." : "Import is incomplete — some feed pages or records are missing."}</p><ul>{importPreview.offices.map((office) => <li key={office.name}>{office.name}: {office.count}</li>)}</ul>{importPreview.missing_offices?.length > 0 && <p className="font-semibold text-amber-200">Missing office roster: {importPreview.missing_offices.join(", ")}. This import cannot establish company-wide coverage.</p>}<p>{importPreview.warning}</p><p>Import preview only; saved roster counts above change after you save.</p>{importPreview.complete_feed && importPreview.total > 0 && <button type="button" disabled={busy} className="min-h-11 rounded-lg border border-blue-400/60 px-4 py-2 font-semibold" onClick={() => void saveSearchScope(importPreview.agents.map(agent => agent.id), officeScope === "jonesborough" ? "Jonesborough, Tennessee" : null)}>Use these {importPreview.total} agents for searches</button>}</div>}
-        </div>
+        </div>}
         <fieldset disabled={busy || !saved} className="space-y-5 disabled:opacity-60">
           <div><label htmlFor="brokerage-name" className="mb-2 block font-medium">Brokerage name</label><input id="brokerage-name" value={name} required maxLength={200} onChange={(e) => { edited(); setName(e.target.value); }} className={fieldClass} /></div>
           <div><label htmlFor="brokerage-website" className="mb-2 block font-medium">Brokerage website (optional)</label><input id="brokerage-website" type="url" placeholder="https://example.com" maxLength={2000} value={website} onChange={(e) => { edited(); setWebsite(e.target.value); }} className={fieldClass} /></div>
-          <div><label htmlFor="brokerage-location" className="mb-2 block font-medium">Brokerage location (optional)</label><input id="brokerage-location" placeholder="City, state" maxLength={200} value={location} onChange={(e) => { edited(); setLocation(e.target.value); }} className={fieldClass} /><p className="mt-2 text-sm text-white/65">Website and location help distinguish similarly named agents when looking for public marketing.</p></div>
-          <div><label htmlFor="agent-total" className="mb-2 block font-medium">How many agents should be included?</label><input id="agent-total" type="number" min="1" step="1" required value={expected} onChange={(e) => { edited(); setExpected(e.target.value); }} className={fieldClass} aria-describedby="agent-total-help" /><p id="agent-total-help" className="mt-2 text-sm text-white/65">Enter the expected count for the offices you are testing. The initial Jonesborough import contained 88 active agents; confirm against the current preview. Knoxville is outside this pilot.</p></div>
+          <div><label htmlFor="brokerage-location" className="mb-2 block font-medium">Area to search</label><input id="brokerage-location" placeholder="East Tennessee" maxLength={200} value={location} onChange={(e) => { edited(); setLocation(e.target.value); }} className={fieldClass} /><p className="mt-2 text-sm text-white/65">The area and website help distinguish similarly named firms and agents.</p></div>
+          {saved?.public_lookup_available ? <PublicBrokerageFinder key={`${name}|${location}|${website}`} name={name} region={location} website={website} disabled={busy} onApply={applyPublicSuggestions} /> : <p className="rounded-lg border border-white/20 p-4 text-sm text-white/70">Public office suggestions are available to invited beta brokers. You can enter offices and agents manually now.</p>}
+          <div className="space-y-3 rounded-lg border border-white/20 p-4"><p className="font-medium">Add an office you oversee</p><div className="grid gap-3 sm:grid-cols-2"><label>Office name<input value={manualOfficeName} onChange={event => setManualOfficeName(event.target.value)} maxLength={120} className={fieldClass} placeholder="Downtown office" /></label><label>City and state<input value={manualOfficeLocation} onChange={event => setManualOfficeLocation(event.target.value)} maxLength={120} className={fieldClass} placeholder="Knoxville, Tennessee" /></label></div><button type="button" disabled={!manualOfficeName.trim() || !manualOfficeLocation.trim() || offices.length >= 10} className="min-h-11 rounded-lg border border-white/40 px-4 py-2 disabled:opacity-50" onClick={() => { const next={name:manualOfficeName.trim(),location:manualOfficeLocation.trim(),website:"",source_url:""}; if(!offices.some(office=>`${office.name}|${office.location}`.toLowerCase()===`${next.name}|${next.location}`.toLowerCase())){setOffices(previous=>[...previous,next]);edited();} setManualOfficeName("");setManualOfficeLocation(""); }}>Add office to draft</button></div>
+          {offices.length > 0 && <div className="rounded-lg border border-white/20 p-4"><p className="font-medium">Offices in this draft</p><ul className="mt-2 space-y-2 text-sm">{offices.map(office => <li key={`${office.name}|${office.location}`} className="flex items-center justify-between gap-3"><span>{office.name} · {office.location}</span><button type="button" className="min-h-11 underline" onClick={() => {setOffices(previous=>previous.filter(item=>item!==office));edited();}}>Remove</button></li>)}</ul><p className="mt-2 text-sm text-white/65">Only save offices your brokerage manages. Public suggestions alone do not establish ownership.</p></div>}
+          <div><label htmlFor="agent-total" className="mb-2 block font-medium">How many agents should be included?</label><input id="agent-total" type="number" min="1" step="1" required value={expected} onChange={(e) => { edited(); setExpected(e.target.value); }} className={fieldClass} aria-describedby="agent-total-help" /><p id="agent-total-help" className="mt-2 text-sm text-white/65">Estimate the total across the offices you selected. Compare this with the confirmed roster to spot missing agents.</p></div>
           <div><label htmlFor="review-scope" className="mb-2 block font-medium">What do you want to review?</label><select id="review-scope" value={scope} onChange={(e) => { edited(); setScope(e.target.value as Scope); }} className={fieldClass}><option value="both">Brokerage ads and individual agent ads</option><option value="brokerage">Brokerage ads only</option><option value="agents">Individual agent ads only</option></select><p className="mt-2 text-sm text-white/65">This records your intended scope. Public searches use the selected agents; brokerage-account collection is not enabled by this setting.</p></div>
-          <div><label htmlFor="agent-roster" className="mb-2 block font-medium">Paste your agent roster</label><p id="roster-help" className="mb-2 text-sm text-white/70">One agent per line: Name, email, optional social URL. Names are required; email and social URL may be blank. If a name contains a comma, remove that comma. No invitations or emails are sent.</p><textarea id="agent-roster" value={roster} onChange={(e) => { edited(); setRoster(e.target.value); }} rows={8} aria-describedby="roster-help" placeholder={"Jane Smith, jane@example.com, https://www.facebook.com/example\nAlex Jones, alex@example.com"} className={`${fieldClass} resize-y`} /><p className="mt-2 text-sm text-white/65">Saving replaces your saved roster with the entries above. Remove a line to remove that roster entry.</p></div>
+          <div><label htmlFor="agent-roster" className="mb-2 block font-medium">Confirm your agent roster</label><p id="roster-help" className="mb-2 text-sm text-white/70">One agent per line: Name, email, optional social URL, optional office. Public suggestions are added here only after you select them. No invitations or emails are sent.</p><textarea id="agent-roster" value={roster} onChange={(e) => { edited(); setRoster(e.target.value); }} rows={8} aria-describedby="roster-help" placeholder={"Jane Smith, jane@example.com, https://www.facebook.com/example, Downtown|Knoxville, Tennessee\nAlex Jones, alex@example.com"} className={`${fieldClass} resize-y`} /><p className="mt-2 text-sm text-white/65">Saving replaces your saved roster with the entries above. Remove a line to remove that roster entry.</p></div>
           <section aria-labelledby="profiles-heading" className="space-y-3 rounded-lg border border-white/20 p-4">
             <h3 id="profiles-heading" className="font-semibold">Agent social profiles</h3>
             <p className="text-sm text-white/75">Record each saved agent’s Facebook, Instagram, X and LinkedIn profile. These are broker-supplied links: ownership is unverified and retrieval has not been checked. Recording links does not connect accounts or start monitoring.</p>

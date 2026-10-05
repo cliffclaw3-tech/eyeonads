@@ -125,7 +125,7 @@ const jsonResponse = { json: (body, options = {}) => ({ body, status: options.st
 function api(user, rpcData = [{ id: 'current-run' }]) {
   let queries = [], calls = [];
   const db = { auth: { getUser: async () => ({ data: { user } }) }, rpc: async (name, args) => { calls.push({ name, args }); return { data: rpcData, error: null }; }, from(table) { const q = { select() { return this; }, eq(k, v) { queries.push({ table, k, v }); return this; }, order() { return this; }, in() { return this; }, maybeSingle: async () => ({ data: null, error: null }), limit: async () => ({ data: [], error: null }) }; return q; } };
-  const m = moduleAt('app/api/reliability/route.ts', { 'next/server': { NextResponse: jsonResponse }, '@/lib/supabase/server': { createClient: async () => db }, '@/lib/discovery-jobs': { sameOrigin: req => req.headers.get('origin') === 'https://eyeonads.com' } });
+  const m = moduleAt('app/api/reliability/route.ts', { 'next/server': { NextResponse: jsonResponse }, '@/lib/supabase/server': { createClient: async () => db }, '@/lib/broker-access': { isBroker: async () => true }, '@/lib/discovery-jobs': { sameOrigin: req => req.headers.get('origin') === 'https://eyeonads.com' } });
   return { ...m, queries, calls };
 }
 const user = { id: 'owner', app_metadata: { eyeonads_pilot: true } };

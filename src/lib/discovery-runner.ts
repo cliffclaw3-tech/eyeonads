@@ -7,7 +7,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { reviewAdText, type AdReview } from './ad-review';
 import { retrieveAd, type RetrievedAd } from './retrieve-ad';
 import { groundCandidate, reviewableAd, validSourceURL, type DiscoveredAd } from './discovered-ad-contract';
-type Agent = {id:string;name:string;social_url?:string};
+type Agent = {id:string;name:string;social_url?:string;office?:string};
 type Setup = {name:string;website?:string;location?:string;discovery_location?:string|null};
 type Candidate = RetrievedAd & { image_review?:SourceImageReview; review: AdReview | null; review_status: 'reviewed' | 'not_reviewed' | 'failed' };
 export async function runDiscovery(db: SupabaseClient, ownerId: string, setup: Setup, agent: Agent) {
@@ -33,7 +33,7 @@ export async function runDiscovery(db: SupabaseClient, ownerId: string, setup: S
     return {id:ad.url,url:ad.url,title:ad.title,last_seen_at:candidate?.capture?.retrieved_at||legacyTime,last_assessed_at:assessed?legacyTime:null,last_attempted_at:candidate?legacyTime:null,content_hash:candidate?.capture?.sha256,assessed_content_hash:assessed?candidate?.capture?.sha256||null:null,content_changed_since_assessment:false};
   }):[];
   const previousInventory:DiscoveryInventoryItem[]=(Array.isArray(previousEvidence?.source_inventory)?previousEvidence.source_inventory:legacyInventory).filter((item:DiscoveryInventoryItem)=>validSourceURL(item.url)&&item.id===item.url&&Number.isFinite(Date.parse(item.last_seen_at))).slice(0,9);
-  const discover=(alternatives?:{excluded_hosts:string[];excluded_urls:string[]})=>discoverMarketing({agent_name:agent.name,brokerage:setup.name,brokerage_website:setup.website,location:setup.discovery_location||setup.location,known_profile:agent.social_url,alternatives});
+  const discover=(alternatives?:{excluded_hosts:string[];excluded_urls:string[]})=>discoverMarketing({agent_name:agent.name,brokerage:setup.name,brokerage_website:setup.website,location:agent.office?.replace('|', ', ')||setup.discovery_location||setup.location,known_profile:agent.social_url,alternatives});
   const startedAt=Date.now();
   stage='public_discovery';
   const {found,openedURLs,searchQueries,incompletePasses}=await discover();

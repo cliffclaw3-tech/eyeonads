@@ -18,6 +18,7 @@ function fixture(options={}){
  const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/app/api/reliability/public-test/route.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,process:{env:{NEXT_PUBLIC_SUPABASE_URL:'https://fixture.supabase.test',SUPABASE_SERVICE_ROLE_KEY:'TEST_SERVICE_SECRET',...options.env}},Date,URL,AbortSignal,require(name){
   if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status||200,headers:init.headers})}};
   if(name==='@/lib/supabase/server')return {createClient:async()=>authDb};
+  if(name==='@/lib/broker-access')return {isBroker:async()=>true};
   if(name==='@supabase/supabase-js')return {createClient:()=>{serviceCalls++;return service;}};
   if(name==='@/lib/discovery-jobs')return {sameOrigin:request=>request.headers.get('origin')==='https://eyeonads.com'};
   if(name==='@/lib/reliability-canary/engine')return {publicPostIdentity};

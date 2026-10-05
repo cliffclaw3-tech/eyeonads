@@ -9,12 +9,14 @@ import { createClient } from '@/lib/supabase/server';
 import { PrintReport } from '@/components/PrintReport';
 import { ReportControls } from '@/components/ReportControls';
 import { validSourceURL } from '@/lib/discovered-ad-contract';
+import { isBroker } from '@/lib/broker-access';
 
 type Evidence = { incomplete_discovery_passes?:number; source_rotation?:{counts:{retained:number;deferred:number;evicted:number}}; candidates: ReportCandidate[]; coverage_gaps: string[]; identity_note: string };
 export default async function ReportPage() {
   const db = await createClient();
   const {data:{user}} = await db.auth.getUser();
   if (!user) redirect('/login');
+  if (!await isBroker(db, user)) redirect('/dashboard/compliance');
   const [setupResult,reviewsResult] = await Promise.all([
     db.from('eyeonads_brokerage_setups').select('*').eq('owner_id',user.id).maybeSingle(),
     db.from('eyeonads_discovery_reviews').select('agent_id,status,searched_at,evidence,error').eq('owner_id',user.id),
@@ -55,7 +57,7 @@ export default async function ReportPage() {
           <p className="mt-2">Latest saved public social sample: {socialAds.length} ads captured · {socialImageCount} images with observations · {socialAds.length-socialImageCount} images unchecked.</p>
           <div className="mt-3 flex flex-wrap gap-3 print:hidden"><a href="#office-social-heading" className="inline-flex min-h-11 items-center rounded-lg bg-blue-600 px-4 py-2 font-semibold">{socialAds.length?`Review public social ads (${socialAds.length})`:"Check public social ads"}</a><a href="#possible-issues" className="inline-flex min-h-11 items-center rounded-lg border border-white/40 px-4 py-2 font-semibold">Review agent issues ({flagged.length})</a><a href="#coverage-gaps" className="inline-flex min-h-11 items-center underline">See agent coverage gaps ({gaps.length})</a></div>
           <p className="mt-3 text-sm">{imageCount} images from agent search sources have saved visibility observations, separate from the public social sample above. This screens sampled public ad text and available source images. Findings need human review and do not certify compliance.</p>
-          <details className="mt-3 text-sm"><summary className="min-h-11 cursor-pointer py-2">Scope and limits</summary><p>{savedAgents.length} agents remain in the full saved roster. {missing>0 ? `${missing} are missing compared with your full estimate of ${setup?.expected_agents}. ` : ''}Knoxville is intentionally outside this office pilot and requires a separate MLS/Spark connection.</p><p className="mt-2">Images, layout, private posts, unindexed ads, and one-click social disclosures may remain unchecked. Read the dates below: these are latest saved results, not a guarantee of current advertising.</p></details>
+          <details className="mt-3 text-sm"><summary className="min-h-11 cursor-pointer py-2">Scope and limits</summary><p>{savedAgents.length} agents remain in the full saved roster. {missing>0 ? `${missing} are missing compared with your full estimate of ${setup?.expected_agents}. ` : ''}Searches cover only saved agents and the office scope you selected. Public directories may omit agents or misstate affiliations.</p><p className="mt-2">Images, layout, private posts, unindexed ads, and one-click social disclosures may remain unchecked. Read the dates below: these are latest saved results, not a guarantee of current advertising.</p></details>
         </section>
         <ReportControls />
         <OfficeSocialReport record={socialRecord} />

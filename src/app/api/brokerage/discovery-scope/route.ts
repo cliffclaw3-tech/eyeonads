@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { sameOrigin } from '@/lib/discovery-jobs';
+import { isBroker } from '@/lib/broker-access';
 const reply = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 export async function POST(request: Request) {
   if (!sameOrigin(request)) return reply({ error: 'Invalid request origin.' }, 403);
   const db = await createClient();
   const { data: { user } } = await db.auth.getUser();
   if (!user) return reply({ error: 'Sign in to choose the office search scope.' }, 401);
+  if (!await isBroker(db,user)) return reply({ error: 'Broker access required.' }, 403);
   if (!user.app_metadata?.eyeonads_pilot) return reply({ error: 'Office search scope is available to invited pilots.' }, 403);
   const body = await request.json().catch(() => null);
   const ids = body?.agent_ids;

@@ -68,7 +68,7 @@ test('repeated text failures rotate behind deferred unattempted cards while rema
  assert.equal(next.selected[0].id,deferred);
 });
 test('legacy three-card evidence migrates and the previously omitted fourth card gets priority',()=>{
- const m=load(),cards=manyCards(4),now=new Date().toISOString();
+ const m=load(),cards=manyCards(4),now='2026-09-24T19:00:00Z';
  const prior={retrieved_at:card.captured_at,ads:cards.slice(0,3).map(c=>({...c,text_review_status:'reviewed',text_review:{result:'green',flags:[],summary:'No issues'}}))};
  const inventory=m.previousSocialInventory(prior,now);assert.equal(inventory.length,3);assert(inventory.every(item=>item.last_assessed_at===card.captured_at));
  const next=rotation.rotateDiscoverySources({observed:cards.map(c=>({id:c.library_id,url:c.source_url,title:'Third Party',content_hash:m.socialContentHash(c)})),previous:inventory,now,batchLimit:4,inventoryLimit:20,eligibleIds:cards.map(c=>c.library_id)});

@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { sameOrigin } from '@/lib/discovery-jobs';
+import { isBroker } from '@/lib/broker-access';
 const reply=(body:unknown,status=200)=>NextResponse.json(body,{status,headers:{'Cache-Control':'no-store'}});
 async function handle(request:Request,write:boolean){
  if(write&&!sameOrigin(request))return reply({error:'Invalid request origin.'},403);
  const db=await createClient();const {data:{user}}=await db.auth.getUser();
  if(!user)return reply({error:'Sign in to manage reports.'},401);
+ if(!await isBroker(db,user))return reply({error:'Broker access required.'},403);
  if(!user.app_metadata?.eyeonads_pilot)return reply({error:'Brokerage reports are enabled for invited pilots.'},403);
  if(write){
   const body=await request.json().catch(()=>null);
