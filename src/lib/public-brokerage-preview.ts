@@ -1,5 +1,5 @@
 export type PublicOffice = { name: string; location: string; website: string; source_url: string };
-export type PublicAgent = { name: string; office: string; source_url: string };
+export type PublicAgent = { name: string; office: string; source_url: string; source_type?: 'public' | 'spark' };
 
 const clean = (value: unknown, limit: number) => typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, limit) : '';
 const publicLink = (value: unknown) => {
