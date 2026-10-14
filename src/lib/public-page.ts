@@ -251,7 +251,7 @@ export function publicPageFailure(error:unknown):PublicPageError {
   if(/Not a public page|Non-public address/.test((value?.message||'')+' '+(value?.cause?.message||'')))return new PublicPageError('unsafe_url');
   return new PublicPageError('network',true);
 }
-export async function readPublicPage(value:string,options:{deadline?:number;timeoutMs?:number}={}) {
+export async function readPublicPage(value:string,options:{deadline?:number;timeoutMs?:number;includeHtml?:boolean}={}) {
   let url:URL;try {url=publicURL(value);}catch{throw new PublicPageError('unsafe_url');}
   const remaining=(options.deadline??Infinity)-Date.now();
   if(remaining<=0)throw new PublicPageError('deadline');
@@ -278,7 +278,7 @@ export async function readPublicPage(value:string,options:{deadline?:number;time
       // it must never override an explicit challenge or other access failure.
       if(failure&&(failure.cause_code!=='empty_content'||!source_metadata.bound_post||source_metadata.bound_post_conflict)){failure.http_status=response.status;throw failure;}
       const text=source_metadata.bound_post?.text||visibleText;
-      return {source_metadata,image_candidates:extractImageCandidates(html,url.href),url:url.href,text:text.slice(0,45000),truncated:text.length>45000,sha256:createHash('sha256').update(html).digest('hex'),retrieved_at:new Date().toISOString()};
+      return {source_metadata,image_candidates:extractImageCandidates(html,url.href),url:url.href,text:text.slice(0,45000),truncated:text.length>45000,sha256:createHash('sha256').update(html).digest('hex'),retrieved_at:new Date().toISOString(),...(options.includeHtml?{html}:{})};
     }
     throw new PublicPageError('redirect_limit');
   } catch(error) {throw publicPageFailure(error);} finally { await dispatcher.destroy(); }
