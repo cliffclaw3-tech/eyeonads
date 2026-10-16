@@ -54,5 +54,9 @@ class BetaSchemaTests(unittest.TestCase):
         with self.as_user(1) as db:
             db.execute("UPDATE user_profiles SET role='broker' WHERE id=%s",(self.users[1],))
             self.assertFalse(db.execute('SELECT eyeonads_current_broker()').fetchone()[0])
-            with self.assertRaises(psycopg.errors.InsufficientPrivilege):db.execute("UPDATE eyeonads_account_roles SET role='broker' WHERE user_id=%s",(self.users[1],))
+            # Supabase default grants may permit the SQL verb; RLS must still
+            # prevent any authoritative role row from changing.
+            try:self.assertEqual(db.execute("UPDATE eyeonads_account_roles SET role='broker' WHERE user_id=%s",(self.users[1],)).rowcount,0)
+            except psycopg.errors.InsufficientPrivilege:pass
+            self.assertFalse(db.execute('SELECT eyeonads_current_broker()').fetchone()[0])
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):db.execute('SELECT * FROM reports')
