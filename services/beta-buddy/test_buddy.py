@@ -43,7 +43,7 @@ class BuddyTests(unittest.TestCase):
             return {'environment':'beta','origin':self.p['beta_origin'],'commit':p['commit'],'artifact_digest':p['artifact_digest'],'healthy':True,'deployment_id':'fixture'}
         self.assertTrue(work_once(self.db,self.config,adapter));self.assertEqual(calls,['repair','deploy'])
         self.assertEqual(self.db.execute('SELECT status FROM reports').fetchone()[0],'retry_ready')
-        n=self.db.execute('SELECT tenant,user FROM notifications').fetchone();self.assertEqual(tuple(n),('tenant-a','user-a'))
+        n=self.db.execute('SELECT tenant,user FROM notifications').fetchone();self.assertEqual((n['tenant'],n['user']),('tenant-a','user-a'))
         self.assertFalse(work_once(self.db,self.config,adapter))
     def test_failed_checks_never_deploy(self):
         self.report();calls=[]
