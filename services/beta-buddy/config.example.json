@@ -1,0 +1,20 @@
+{
+  "environment": "beta",
+  "products": {
+    "eyeonads": {
+      "secret_env": "BUDDY_EYEONADS_SECRET",
+      "runner_secret_env": "BUDDY_EYEONADS_RUNNER_SECRET",
+      "production_origin": "https://eyeonads.com",
+      "beta_origin": "https://eyeonads-beta.example.invalid",
+      "isolated_data": true,
+      "role_capabilities": {"broker": ["support.correction.request", "marketing.review"], "agent": ["scan.own"]},
+      "repository": "cliffclaw3-tech/eyeonads",
+      "base_ref": "beta",
+      "pages": ["/broker", "/broker/discovery", "/broker/report", "/dashboard", "/dashboard/compliance", "/signup", "/login"],
+      "allowed_paths": ["src/components/", "src/app/broker/", "tests/"],
+      "required_checks": ["reported_behavior", "existing_behavior", "regression", "typecheck", "build", "tenant_isolation", "production_denied", "diff_security_review"],
+      "runner_url": "",
+      "deployer_url": ""
+    }
+  }
+}
