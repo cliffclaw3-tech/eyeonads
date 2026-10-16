@@ -1,0 +1,7 @@
+diff --git a/fixture/status.py b/fixture/status.py
+--- a/fixture/status.py
++++ b/fixture/status.py
+@@ -1,2 +1,2 @@
+ def label(loading: bool) -> str:
+-    return "Loading"
++    return "Loading" if loading else "Loaded"
