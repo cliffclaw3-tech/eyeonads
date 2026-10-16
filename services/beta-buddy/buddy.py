@@ -86,18 +86,24 @@ def submit(db,config,identity,value):
         if prior:db.execute('COMMIT');return dict(prior)|{'duplicate':True}
         count=db.execute('SELECT count(*) FROM reports WHERE product=? AND tenant=? AND user=? AND created>?',(product,tenant,user,now-3600)).fetchone()[0]
         if count>=10:raise OverflowError('Report limit reached')
-        status='feature_review' if kind=='feature' else 'operational_review' if kind=='correction' else 'review_required' if access_issue or SENSITIVE.search(description) else 'queued' if p.get('runner_url') and p.get('deployer_url') else 'blocked'
+        ready=(p.get('runner_url') and p.get('deployer_url')) or (p.get('worker_mode')=='poll' and os.environ.get('BUDDY_WORKER_SECRET'))
+        status='feature_review' if kind=='feature' else 'operational_review' if kind=='correction' else 'review_required' if access_issue or SENSITIVE.search(description) else 'queued' if ready else 'blocked'
         rid=str(uuid.uuid4());db.execute('INSERT INTO reports(id,product,tenant,user,kind,description,page,diagnostics,fingerprint,status,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',(rid,product,tenant,user,kind,description,page,json.dumps(diagnostics),fingerprint,status,now,now));event(db,rid,'submitted:'+status+':actor_role:'+str(actor_role)[:40])
         db.execute('COMMIT');return {'id':rid,'status':status,'duplicate':False}
     except Exception:db.execute('ROLLBACK');raise
 
-def claim(db):
+def claim(db,product=None):
     now=int(time.time());db.execute('BEGIN IMMEDIATE')
     try:
         expired=db.execute("SELECT id FROM reports WHERE status='repairing' AND leased_at<?",(now-600,)).fetchall()
         # Unknown deployment outcomes must be reconciled by an operator, never blindly retried.
         for r in expired:db.execute("UPDATE reports SET status='review_required',lease=NULL,updated=? WHERE id=?",(now,r['id']));event(db,r['id'],'lease_expired:reconcile_external_outcome')
-        r=db.execute("SELECT * FROM reports WHERE status='queued' AND attempts<2 ORDER BY created LIMIT 1").fetchone()
+        # One active repair per product: independent jobs must not race a beta
+        # promotion/rollback against each other. Other products remain runnable.
+        statement="SELECT * FROM reports r WHERE status='queued' AND attempts<2 AND NOT EXISTS (SELECT 1 FROM reports active WHERE active.product=r.product AND active.status='repairing')"
+        parameters=()
+        if product is not None:statement+=' AND r.product=?';parameters=(product,)
+        r=db.execute(statement+' ORDER BY created LIMIT 1',parameters).fetchone()
         if not r:db.execute('COMMIT');return None
         token=secrets.token_hex(24);db.execute("UPDATE reports SET status='repairing',attempts=attempts+1,lease=?,leased_at=?,updated=? WHERE id=?",(token,now,now,r['id']));event(db,r['id'],'claimed');db.execute('COMMIT')
         return dict(r)|{'lease':token,'attempts':r['attempts']+1}

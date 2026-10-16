@@ -9,7 +9,7 @@ Reusable beta-only report service plus an EyeOnAds adapter. No production repair
 - Duplicate reports within 24 hours return the existing ticket. Limit: ten new reports/hour/user.
 - Feature suggestions and authorized operational-correction requests have distinct queues; neither enters the repair worker.
 - Atomically leased repair jobs, a maximum of two claims, audit events, replay protection and bounded adapters. Expired leases stop for reconciliation rather than repeat an uncertain deployment.
-- A signed trusted runner/deployer contract. Tests cover a simulated repair, passed checks, beta deployment, retry notification and health-failure rollback. External coding and deployment are NOT configured.
+- A signed trusted runner/deployer contract and a separate signed polling-worker API. Local tests cover repair ordering, failed-check rejection, scoped retry notices and health-failure rollback. Hosted repair/deployment is not yet enabled.
 - EyeOnAds widget, server proxy, authenticated actor-derived tenancy/role, limited brokerage HTTP error events, in-app retry notices and unsent-message preservation. No form interception, recordings, full errors, DOM, cookies or browser storage capture.
 
 ## Isolation requirements
@@ -47,7 +47,7 @@ Schedule `work` in an isolated worker after configuring adapters. `events` and b
 
 The service signs JSON requests with HMAC-SHA256 in `X-Buddy-Signature`. The adapter signs the exact response bytes with the same product-specific runner secret. Reply scope must echo `job_id`, `nonce`, `product`, and `tenant`. HTTPS redirects are denied. This secret belongs only in the trusted adapter, never in the coding/model sandbox.
 
-The repair request contains a server-configured repository/base reference/path allowlist/check list and explicitly UNTRUSTED report text. The coding workflow produces only a unified patch proposal. `sandbox_runner.py` implements a reference verifier: disposable local clone pinned to a base commit, bounded path filtering, Docker image pinned by digest, no network, no capabilities, non-root user, readonly host mount, resource/time limits, independent tests in `/checks/`, and a candidate git bundle. It never pushes or deploys. Docker and the trusted prebuilt test image are not installed/configured here; that isolation path has not run end-to-end.
+The repair request contains a server-configured repository/base reference/path allowlist/check list and explicitly UNTRUSTED report text. The coding workflow produces only a unified patch proposal. `sandbox_runner.py` implements a verifier: disposable local clone pinned to a base commit, bounded path filtering, Docker image pinned by digest, no network, no capabilities, non-root user, readonly host mount, resource/time limits, independent tests in `/checks/`, and a candidate git bundle. It never pushes or deploys. The real Docker path passed on GitHub Actions run 38913542522, rejecting an incorrect provider patch and verifying a correct synthetic Python display repair. That was not an EyeOnAds deployment.
 
 The operator's pinned test image must copy readonly `/workspace` into its writable temporary workspace where builds run. Independent behavior, tenant-isolation, production-denial and diff-security checks must be baked into `/checks/`, outside files the model can change. Never rely only on tests that a patch can edit. Both baseline behavior reproduction and post-fix behavior must be attested by the trusted runner. Before setting `sensitive_change=false`, the trusted diff-security review must inspect effects, not merely filenames. Access/authentication, privacy, payments, data/schema changes and transaction/contract correctness require human review.
 
@@ -62,7 +62,7 @@ Operational corrections are human product actions, not software repairs. A broke
 ## Customer promotion
 
 Verified beta artifacts are candidates only. Promote an exact reviewed commit through the product's normal human-controlled release process. Customer configuration disables Buddy; omit service/worker credentials and ensure `/api/beta-buddy` returns 404 and Buddy UI is absent. Never grant the beta deployment principal access to production.
-### Durable hosted ingress (prepared, not deployed)
+### Durable hosted ingress (deployed and verified)
 
 `app.py` is a WSGI serverless entrypoint. Deploy this service directory as a
 separate Python project; it refuses local SQLite storage. Install `requirements.txt`.
@@ -88,10 +88,44 @@ commit together. Never run schema bootstrap during tester requests. Worker
 execution remains a separate operator process using the same durable database;
 ingress does not start long coding jobs inside a browser request.
 
-Local tests verify adapter SQL/target rules and WSGI ingestion with SQLite test
-fixtures; they are NOT a successful live Postgres integration test. Before
-enabling hosting, run parallel dedup/claim, tenant isolation, rollback and
-restart-persistence checks against the newly provisioned project.
+Hosted ingress is https://beta-buddy-service.vercel.app, backed by the separate
+Supabase project whmxiocdtulylddebjpm. All four service tables have RLS enabled
+and no anon/authenticated grants. On October 16, live signed ingestion,
+deduplication, tenant-scoped reads, replay denial and tampered-signature denial
+passed using a synthetic feature report (no repair was queued). Real Postgres
+integration checks including parallel dedup/claim and reconnect persistence
+passed in disposable GitHub CI. Latest published passing run: 38914995913,
+commit 78c1050800ebf804d4ce0eae9958dcee7f0c1c05. Do not confuse those tests with
+a hosted EyeOnAds repair/deploy demonstration, which remains unfinished.
+
+### Polling worker and separate beta publisher
+
+`worker_api.py` uses a separate BUDDY_WORKER_SECRET and explicit worker_products
+allowlist. Product reporting keys cannot claim, renew or finish repair jobs.
+Only one repair per product can run at a time. Renewal is limited to 30 minutes;
+lost/expired leases require reconciliation. A retry notice requires all eight
+independent checks and the exact configured beta origin/commit/artifact.
+
+`poll_worker.py` runs on the operator machine using the existing Codex sign-in.
+`beta_publisher.py` authenticates only to cliffclaw3-tech/eyeonads-isolated-beta;
+it has no production repository or Vercel management path. A fine-grained token
+must be limited to that repository with Contents and Actions read/write. The
+independent workflow is bootstrapped separately, so Workflows permission is not
+required. Never grant this worker account-wide repository access.
+
+Only the registered BetaReadyLabel display defect is currently eligible for
+automatic repair. Other bugs stop for operator review until an independent
+reproduction/security contract is registered. The model cannot edit tests,
+workflow files, API/auth code, schema or deployment policy. The trusted main
+workflow builds an isolated image, verifies a candidate, and emits a bundle and
+attestation. The publisher promotes beta-release only after those checks, then
+checks the deployed commit. Failed health restores the previous source tree as
+a forward commit; an uncertain outcome stops for reconciliation.
+
+The separate beta repository and its read-only workflow have been created.
+Source bootstrap, beta hosting, worker credentials, scheduling and the actual
+EyeOnAds end-to-end demonstration are still in progress. The polling API remains
+disabled without its separate secret and explicit configuration.
 
 ### Existing Codex sign-in proposal transport
 

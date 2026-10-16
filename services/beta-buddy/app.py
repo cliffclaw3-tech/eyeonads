@@ -34,6 +34,16 @@ def app(environ, start_response):
             db = connect(None)
             db.execute('SELECT 1').fetchone()
             code, value = 200, {'status':'ready','environment':'beta'}
+        elif path in ('/v1/worker/claim','/v1/worker/finish','/v1/worker/review','/v1/worker/renew') and method=='POST':
+            size=int(environ.get('CONTENT_LENGTH') or '0')
+            if not 0<=size<=12000:raise ValueError('Worker body size')
+            body=environ['wsgi.input'].read(size)
+            if len(body)!=size:raise ValueError('Truncated body')
+            headers={key[5:].replace('_','-').title():val for key,val in environ.items() if key.startswith('HTTP_')}
+            stage='database';db=connect(None);db_ready=True;stage='request'
+            from worker_api import authenticate_worker,worker_request
+            product=authenticate_worker(db,config,path,headers,body)
+            code,value=200,worker_request(db,config,path,product,json.loads(body))
         elif path not in ('/v1/reports','/v1/notifications'):
             code, value = 404, {'error':'Not found'}
         elif method not in ('GET','POST') or (method == 'POST' and path != '/v1/reports'):
