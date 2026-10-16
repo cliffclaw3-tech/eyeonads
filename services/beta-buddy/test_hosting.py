@@ -46,6 +46,10 @@ class HostingTests(unittest.TestCase):
         self.assertIn('pg_advisory_xact_lock',raw.calls[1][0])
         db.execute('SELECT id FROM reports WHERE user=?',('tester',))
         self.assertEqual(raw.calls[-1],('SELECT id FROM reports WHERE "user"=%s',('tester',)))
+        db.execute("SELECT id FROM reports WHERE description LIKE '%button%'")
+        self.assertEqual(raw.calls[-1],("SELECT id FROM reports WHERE description LIKE '%button%'",))
+        db.execute("SELECT id FROM reports WHERE description LIKE '%button%' AND user=?",('tester',))
+        self.assertEqual(raw.calls[-1],("SELECT id FROM reports WHERE description LIKE '%%button%%' AND \"user\"=%s",('tester',)))
         self.assertEqual(Row(a=1,b=2)[0],1)
 
     def test_finish_notification_failure_rolls_back_status_and_event(self):

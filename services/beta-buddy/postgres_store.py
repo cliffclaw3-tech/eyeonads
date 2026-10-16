@@ -32,6 +32,8 @@ class PostgresStore:
 
     def execute(self, statement, parameters=()):
         # All statements originate in buddy.py, never from a report or model.
+        if parameters:
+            statement = statement.replace('%', '%%')
         statement = statement.replace('?', '%s')
         statement = re.sub(r'\buser\b', '"user"', statement)
         if statement == 'BEGIN IMMEDIATE':
@@ -40,7 +42,7 @@ class PostgresStore:
         if statement.startswith('INSERT OR IGNORE INTO notifications'):
             statement = statement.replace('INSERT OR IGNORE', 'INSERT', 1) + ' ON CONFLICT DO NOTHING'
         try:
-            return self.connection.execute(statement, parameters)
+            return self.connection.execute(statement, parameters) if parameters else self.connection.execute(statement)
         except Exception as error:
             # Preserve the ingestion API's replay rejection across both stores.
             if getattr(error, 'sqlstate', None) == '23505' and statement.startswith('INSERT INTO nonces'):
