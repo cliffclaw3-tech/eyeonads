@@ -30,3 +30,12 @@ jobs:
       - run: python -m unittest discover -s services/beta-buddy -p 'test_*.py' -v
         env:
           BUDDY_TEST_DATABASE_DSN: postgresql://postgres:disposable-ci-fixture@127.0.0.1:5432/postgres
+  isolated-proposal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: docker build --iidfile /tmp/buddy-image-id -f services/beta-buddy/smoke/Dockerfile services/beta-buddy
+      - run: python3 services/beta-buddy/smoke/run.py "$(cat /tmp/buddy-image-id)"
