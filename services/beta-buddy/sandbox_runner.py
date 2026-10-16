@@ -10,7 +10,7 @@ from buddy import safe_paths
 def run_proposal(config,patch):
     if config.get('environment')!='beta' or config.get('isolated_data') is not True:raise ValueError('Isolated beta only')
     image=config.get('test_image','')
-    if not re.fullmatch(r'[\w./:-]+@sha256:[a-f0-9]{64}',image):raise ValueError('Pinned test image required')
+    if not re.fullmatch(r'(?:[\w./:-]+@)?sha256:[a-f0-9]{64}',image):raise ValueError('Pinned test image required')
     repo=pathlib.Path(config['local_repository']).resolve()
     if not repo.is_dir():raise ValueError('Trusted source checkout unavailable')
     checks=config['checks']
@@ -18,7 +18,7 @@ def run_proposal(config,patch):
     for name in ('reported_behavior','diff_security_review','tenant_isolation','production_denied'):
         if name not in checks or not any(arg.startswith('/checks/') for arg in checks[name]):raise ValueError('Independent pinned-image behavior and security checks required')
     # Minimal subprocess environment: no inherited model, cloud, database, git or deployment secrets.
-    env={key:os.environ[key] for key in ('PATH','SystemRoot','TEMP','TMP') if key in os.environ}
+    env={key:value for key,value in os.environ.items() if key.upper() in ('PATH','SYSTEMROOT','TEMP','TMP')}
     env.update({'GIT_CONFIG_NOSYSTEM':'1','GIT_CONFIG_GLOBAL':os.devnull,'GIT_TERMINAL_PROMPT':'0'})
     def execute(args,cwd,timeout=120):return subprocess.run(args,cwd=cwd,env=env,capture_output=True,text=True,timeout=timeout,check=True).stdout
     with tempfile.TemporaryDirectory(prefix='beta-buddy-') as tmp:
