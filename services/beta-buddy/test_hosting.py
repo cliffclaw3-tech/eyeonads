@@ -5,6 +5,14 @@ from buddy import connect, claim, finish
 import test_buddy
 
 class HostingTests(unittest.TestCase):
+    def test_operator_diagnostics_never_log_exception_text(self):
+        import app
+        class AuthenticationError(Exception):sqlstate='28P01'
+        with self.assertLogs('beta_buddy',level='WARNING') as captured:
+            app.operator_failure(AuthenticationError('password=never-log-this'), 'database')
+        text='\n'.join(captured.output)
+        self.assertIn('database_authentication',text)
+        self.assertNotIn('never-log-this',text)
     def test_coding_proposal_transport_has_no_cloud_keys_and_does_not_apply_patch(self):
         import codex_proposal
         patch_text='diff --git a/src/components/Status.tsx b/src/components/Status.tsx\n--- a/src/components/Status.tsx\n+++ b/src/components/Status.tsx\n@@ -1 +1 @@\n-old\n+new\n'

@@ -1,19 +1,36 @@
 """Serverless WSGI ingress. Repair work runs separately, never in a tester request."""
-import json, os
+import json, logging, os
 from buddy import authenticate, connect, submit, validate_config
+
+def operator_failure(error, stage):
+    """Log bounded operational codes, never exception messages or secret values."""
+    state=getattr(error,'sqlstate',None)
+    if state=='28P01':code='database_authentication'
+    elif state=='42P01':code='database_schema'
+    elif isinstance(error,json.JSONDecodeError):code='configuration_json'
+    elif isinstance(error,KeyError):code='required_setting_missing'
+    elif stage=='database' and isinstance(error,ValueError):code='database_target_guard'
+    elif stage=='database':
+        detail=str(error).lower() # Used only for classification; never emitted.
+        code='database_authentication' if 'password authentication failed' in detail else 'database_certificate' if 'certificate' in detail else 'database_connection'
+    else:code='configuration_guard' if stage=='configuration' else 'request_or_storage'
+    logging.getLogger('beta_buddy').warning('buddy_unavailable stage=%s code=%s',stage,code)
 
 def app(environ, start_response):
     code = 503
     value = {'error':'Support unavailable; retry later'}
     db = None
     db_ready = False
+    stage = 'configuration'
     try:
         if os.environ.get('BUDDY_STORE') != 'postgres':
             raise ValueError('Serverless ingress requires durable storage')
         config = validate_config(json.loads(os.environ['BUDDY_CONFIG_JSON']))
+        stage = 'routing'
         path = environ.get('PATH_INFO','')
         method = environ.get('REQUEST_METHOD','')
         if path == '/health' and method == 'GET':
+            stage = 'database'
             db = connect(None)
             db.execute('SELECT 1').fetchone()
             code, value = 200, {'status':'ready','environment':'beta'}
@@ -29,8 +46,10 @@ def app(environ, start_response):
                 body = environ['wsgi.input'].read(size)
                 if len(body) != size: raise ValueError('Truncated body')
                 headers = {key[5:].replace('_','-').title(): val for key,val in environ.items() if key.startswith('HTTP_')}
+                stage = 'database'
                 db = connect(None)
                 db_ready = True
+                stage = 'request'
                 who = authenticate(db,config,method,path,headers,body)
                 if method == 'POST':
                     code, value = 201, submit(db,config,who,json.loads(body))
@@ -40,10 +59,11 @@ def app(environ, start_response):
                     code, value = 200, {'reports':[dict(r) for r in db.execute('SELECT id,kind,status,created FROM reports WHERE product=? AND tenant=? AND user=? ORDER BY created DESC LIMIT 20',who)]}
     except OverflowError:
         code, value = 429, {'error':'Report limit reached'}
-    except (ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError) as error:
+        if not db_ready:operator_failure(error,stage)
         code, value = (400, {'error':'Invalid or unauthorized request'}) if db_ready else (503, {'error':'Support unavailable; retry later'})
-    except Exception:
-        pass
+    except Exception as error:
+        operator_failure(error,stage)
     finally:
         if db: db.close()
     raw = json.dumps(value).encode()
