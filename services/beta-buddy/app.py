@@ -6,6 +6,7 @@ def app(environ, start_response):
     code = 503
     value = {'error':'Support unavailable; retry later'}
     db = None
+    db_ready = False
     try:
         if os.environ.get('BUDDY_STORE') != 'postgres':
             raise ValueError('Serverless ingress requires durable storage')
@@ -29,6 +30,7 @@ def app(environ, start_response):
                 if len(body) != size: raise ValueError('Truncated body')
                 headers = {key[5:].replace('_','-').title(): val for key,val in environ.items() if key.startswith('HTTP_')}
                 db = connect(None)
+                db_ready = True
                 who = authenticate(db,config,method,path,headers,body)
                 if method == 'POST':
                     code, value = 201, submit(db,config,who,json.loads(body))
@@ -39,7 +41,7 @@ def app(environ, start_response):
     except OverflowError:
         code, value = 429, {'error':'Report limit reached'}
     except (ValueError, KeyError, TypeError):
-        code, value = 400, {'error':'Invalid or unauthorized request'}
+        code, value = (400, {'error':'Invalid or unauthorized request'}) if db_ready else (503, {'error':'Support unavailable; retry later'})
     except Exception:
         pass
     finally:

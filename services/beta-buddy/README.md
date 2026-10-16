@@ -74,9 +74,13 @@ Configure server-only secrets `BUDDY_STORE=postgres`, `BUDDY_ENVIRONMENT=beta`,
 `BUDDY_DATABASE_URL=<direct Postgres connection URI>` and `BUDDY_CONFIG_JSON`
 (the operator-approved configuration serialized as JSON), plus each product's
 signing secret. The URL must use `db.<new project ref>.supabase.co:5432/postgres`.
-TLS is forced to verify-full; arbitrary DSN options and the known production
-project are rejected. Direct connections need network IPv6 support; do not
-silently substitute a pooler or disable TLS if unavailable.
+TLS is forced to verify-full with system CA roots; arbitrary DSN options and
+the known production project are rejected. Direct connections need IPv6.
+For an IPv4 host, explicitly configure BUDDY_DATABASE_POOLER_HOST to the session
+pooler host shown in the NEW project dashboard; the adapter requires username
+postgres.<new project ref> and port 5432. Never silently switch database identity
+or disable TLS. Alternatively supply BUDDY_DATABASE_PASSWORD (no URL encoding)
+instead of BUDDY_DATABASE_URL; the other non-secret fields construct the target.
 
 The SQL adapter serializes report dedup/rate checks and queue claims with a
 transaction-scoped advisory lock. Status, audit event and notification writes

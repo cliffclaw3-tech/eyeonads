@@ -1,22 +1,26 @@
 """Durable beta store. Schema installation is an explicit operator step.
 
-Only a direct connection to the configured independent Supabase project is allowed.
-No production DSN, pooled ambiguous host, connection options or schema bootstrap.
+Only the exact configured independent Supabase target is allowed. A session
+pooler additionally requires an operator-pinned host and project-bound username.
+No production DSN, ambiguous pooler identity, options or schema bootstrap.
 """
 import os, re
 
 PRODUCTION_PROJECTS = {'vcdvqhchjxqnuuruobqg'}
 
-def validate_connection(info, project):
+def validate_connection(info, project, pooler_host=None):
     if not re.fullmatch(r'[a-z]{20}', project or '') or project in PRODUCTION_PROJECTS:
         raise ValueError('Independent beta project required')
-    if info.get('host') != f'db.{project}.supabase.co':
+    if pooler_host:
+        if not re.fullmatch(r'aws-\d+-[a-z0-9-]+\.pooler\.supabase\.com',pooler_host) or info.get('host')!=pooler_host or info.get('user')!=f'postgres.{project}':
+            raise ValueError('Exact beta pooler host and project identity required')
+    elif info.get('host') != f'db.{project}.supabase.co':
         raise ValueError('Exact beta database host required')
     if info.get('dbname', 'postgres') != 'postgres' or str(info.get('port', '5432')) != '5432':
         raise ValueError('Unexpected database target')
     if set(info) - {'host','port','dbname','user','password','sslmode','connect_timeout'}:
         raise ValueError('Connection overrides denied')
-    return dict(info, sslmode='verify-full', connect_timeout='10')
+    return dict(info, sslmode='verify-full', sslrootcert='system', connect_timeout='10')
 
 class Row(dict):
     def __getitem__(self, key):
@@ -58,5 +62,11 @@ def connect_postgres():
         raise ValueError('Isolated beta storage required')
     import psycopg
     from psycopg.conninfo import conninfo_to_dict
-    info = validate_connection(conninfo_to_dict(os.environ['BUDDY_DATABASE_URL']), os.environ.get('BUDDY_DATABASE_PROJECT'))
+    project=os.environ.get('BUDDY_DATABASE_PROJECT')
+    pooler=os.environ.get('BUDDY_DATABASE_POOLER_HOST')
+    if os.environ.get('BUDDY_DATABASE_URL'):
+        supplied=conninfo_to_dict(os.environ['BUDDY_DATABASE_URL'])
+    else:
+        supplied={'host':pooler or f'db.{project}.supabase.co','port':'5432','dbname':'postgres','user':f'postgres.{project}' if pooler else 'postgres','password':os.environ['BUDDY_DATABASE_PASSWORD']}
+    info = validate_connection(supplied,project,pooler)
     return PostgresStore(psycopg.connect(**info, autocommit=True, row_factory=row_factory))

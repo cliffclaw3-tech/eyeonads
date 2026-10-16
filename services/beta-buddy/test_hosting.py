@@ -33,6 +33,10 @@ class HostingTests(unittest.TestCase):
     def test_exact_isolated_target_and_tls(self):
         project = 'a'*20
         self.assertEqual(validate_connection({'host':f'db.{project}.supabase.co'},project)['sslmode'],'verify-full')
+        self.assertEqual(validate_connection({'host':f'db.{project}.supabase.co'},project)['sslrootcert'],'system')
+        pooler='aws-1-ca-central-1.pooler.supabase.com'
+        self.assertEqual(validate_connection({'host':pooler,'user':f'postgres.{project}'},project,pooler)['sslmode'],'verify-full')
+        with self.assertRaises(ValueError):validate_connection({'host':pooler,'user':'postgres.vcdvqhchjxqnuuruobqg'},project,pooler)
         for target, ref in [({'host':'db.vcdvqhchjxqnuuruobqg.supabase.co'},'vcdvqhchjxqnuuruobqg'),({'host':'localhost'},project),({'host':f'db.{project}.supabase.co','options':'unsafe'},project),({'host':f'db.{project}.supabase.co','dbname':'other'},project)]:
             with self.assertRaises(ValueError): validate_connection(target,ref)
 
@@ -85,6 +89,7 @@ class HostingTests(unittest.TestCase):
             with patch.dict(os.environ,{'BUDDY_STORE':'sqlite'}),patch.object(app,'connect') as storage:
                 app.app(environ,lambda status,headers:statuses.append(status))
                 storage.assert_not_called()
+                self.assertEqual(statuses[-1],'503 Service Unavailable')
         finally:fixture.tearDown()
 
 if __name__=='__main__':unittest.main()
