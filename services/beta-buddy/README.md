@@ -74,7 +74,7 @@ Configure server-only secrets `BUDDY_STORE=postgres`, `BUDDY_ENVIRONMENT=beta`,
 `BUDDY_DATABASE_URL=<direct Postgres connection URI>` and `BUDDY_CONFIG_JSON`
 (the operator-approved configuration serialized as JSON), plus each product's
 signing secret. The URL must use `db.<new project ref>.supabase.co:5432/postgres`.
-TLS is forced to verify-full with system CA roots; arbitrary DSN options and
+TLS is forced to verify-full with the bundled, SHA256-pinned public Supabase CA; arbitrary DSN options and
 the known production project are rejected. Direct connections need IPv6.
 For an IPv4 host, explicitly configure BUDDY_DATABASE_POOLER_HOST to the session
 pooler host shown in the NEW project dashboard; the adapter requires username
@@ -110,3 +110,5 @@ provider smoke check returned the expected unified diff for a synthetic reversed
 loading-label defect on October 16. That is not a live EyeOnAds repair or hosted
 autonomous loop. Local authentication will expire and operator availability is
 required until a separately authorized hosted coding-provider identity exists.
+
+The public CA was obtained from the certificate link in the isolated project Database Settings: https://supabase-downloads.s3-ap-southeast-1.amazonaws.com/prod/ssl/prod-ca-2021.crt . It is a public trust certificate, not a production credential or private key. Default system roots failed against the configured session pooler; the bundled CA and hostname verification passed a password-free TLS probe. Never weaken sslmode to work around certificate failures.

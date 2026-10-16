@@ -4,9 +4,11 @@ Only the exact configured independent Supabase target is allowed. A session
 pooler additionally requires an operator-pinned host and project-bound username.
 No production DSN, ambiguous pooler identity, options or schema bootstrap.
 """
-import os, re
+import hashlib, os, pathlib, re
 
 PRODUCTION_PROJECTS = {'vcdvqhchjxqnuuruobqg'}
+CA_FILE = pathlib.Path(__file__).resolve().parent/'certificates'/'supabase-ca-2021.crt'
+CA_SHA256 = '700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7'
 
 def validate_connection(info, project, pooler_host=None):
     if not re.fullmatch(r'[a-z]{20}', project or '') or project in PRODUCTION_PROJECTS:
@@ -20,7 +22,9 @@ def validate_connection(info, project, pooler_host=None):
         raise ValueError('Unexpected database target')
     if set(info) - {'host','port','dbname','user','password','sslmode','connect_timeout'}:
         raise ValueError('Connection overrides denied')
-    return dict(info, sslmode='verify-full', sslrootcert='system', connect_timeout='10')
+    if hashlib.sha256(CA_FILE.read_bytes()).hexdigest()!=CA_SHA256:
+        raise ValueError('Trusted database CA unavailable')
+    return dict(info, sslmode='verify-full', sslrootcert=str(CA_FILE), connect_timeout='10')
 
 class Row(dict):
     def __getitem__(self, key):
