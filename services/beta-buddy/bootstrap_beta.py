@@ -6,7 +6,7 @@ the runtime token needs Contents + Actions write, not Workflows permission.
 """
 import argparse,base64,json,pathlib,re,subprocess
 from beta_publisher import BetaPublisher,REPOSITORY
-ROOTS=('src/','public/','tests/','services/beta-buddy/')
+ROOTS=('src/','public/','tests/','supabase/','services/beta-buddy/')
 FILES={'package.json','package-lock.json','next.config.ts','postcss.config.mjs','tsconfig.json','eslint.config.mjs','.gitignore','.vercelignore','AGENTS.md'}
 def manifest(root):
     names=subprocess.check_output(['git','-c','safe.directory='+root.as_posix(),'ls-files','--cached','--others','--exclude-standard'],cwd=root,text=True).splitlines()
@@ -28,7 +28,7 @@ def provision(publisher,root):
     if {item['path'] for item in tree if item['type']=='blob'}!={'README.md','.github/workflows/beta-buddy-repair.yml'}:raise ValueError('Repository already provisioned; no overwrite allowed')
     entries=[]
     for name,data in manifest(root):
-        try:entries.append({'path':name,'mode':'100644','type':'blob','content':data.decode('utf-8')})
+        try:entries.append({'path':name,'mode':'100644','type':'blob','content':data.decode('utf-8').replace('\r\n','\n')})
         except UnicodeDecodeError:
             blob=publisher.api('/git/blobs','POST',{'content':base64.b64encode(data).decode(),'encoding':'base64'})
             entries.append({'path':name,'mode':'100644','type':'blob','sha':blob['sha']})

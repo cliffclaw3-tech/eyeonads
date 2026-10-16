@@ -34,6 +34,7 @@ def worker_request(db,config,path,product,value):
     row=db.execute("SELECT * FROM reports WHERE id=? AND product=? AND status='repairing' AND lease=?",(job_id,product,lease)).fetchone()
     if not row:raise ValueError('Lease lost')
     report=dict(row)
+    if not report.get('leased_at') or int(time.time())-report['leased_at']>600:raise ValueError('Lease expired; reconcile before retrying')
     if path=='/v1/worker/renew':
         started=db.execute("SELECT MAX(created) FROM events WHERE report=? AND event='claimed'",(job_id,)).fetchone()[0]
         if not started or int(time.time())-started>1800:raise ValueError('Worker deadline exceeded')

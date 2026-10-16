@@ -28,10 +28,10 @@ def apply_proposal(source,patch):
     env={k:v for k,v in os.environ.items() if k.upper() in ('PATH','SYSTEMROOT','TEMP','TMP')}
     env.update(GIT_CONFIG_GLOBAL=os.devnull,GIT_CONFIG_NOSYSTEM='1',GIT_TERMINAL_PROMPT='0')
     with tempfile.TemporaryDirectory(prefix='buddy-apply-') as temporary:
-        root=pathlib.Path(temporary);file=root/SOURCE;file.parent.mkdir(parents=True);file.write_text(source,encoding='utf-8')
+        root=pathlib.Path(temporary);file=root/SOURCE;file.parent.mkdir(parents=True);file.write_text(source.replace('\r\n','\n'),encoding='utf-8',newline='\n')
         def git(*args):return subprocess.check_output(['git',*args],cwd=root,env=env,stderr=subprocess.DEVNULL,text=True,timeout=30).strip()
         git('init');git('add',SOURCE);git('-c','user.name=Buddy','-c','user.email=buddy@localhost','commit','-m','Explicit source fixture')
-        patchfile=root/'proposal.patch';patchfile.write_text(patch,encoding='utf-8')
+        patchfile=root/'proposal.patch';patchfile.write_text(patch,encoding='utf-8',newline='\n')
         git('apply','--check','--index',str(patchfile));git('apply','--index',str(patchfile))
         if git('diff','--cached','--name-only').splitlines()!=[SOURCE]:raise ValueError('Unregistered patch path')
         result=file.read_text(encoding='utf-8')
